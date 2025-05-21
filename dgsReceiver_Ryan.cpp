@@ -45,32 +45,6 @@
 */
 #define WRITEGTFORMAT
 
-/* SINGLESHOT:  When defined, the receiver will exit once the output file(s) reach
- * 				the specified size.  See FULL_FILE_MODE, for more details.
-*/
-//#define SINGLESHOT
-
-#ifdef SINGLESHOT
-/* FULL_FILE_MODE:  When defined, the receiver will only exit once all open files
- * 					reach the specified size provided by the user. Otherwise,
- * 					when not defined, will close when the first file reaches the
- * 					specified file size.
- *
- * 					In other words, if this is set with file-per-channel mode configured
- *					all opened channel files will have the same number of events as set
- *					by the specified file size provided when running the program.
- *
- *					Note that the receiver has no knowledge of the number of enabled channels.
- * 					A file is only opened once an event has been received to open that file.
- * 					If the rate difference between channels is extreme, and the requested size
- *					limit is set small, then it is possible that the above condition
- * 					("all opened channel files" reaching the specified size limit) could be
- *					satisfied before any receiving any events from very slow or low rate channels.
- *
- * 					(At least one file must be opened before the program will close itself.)
-*/
-#define FULL_FILE_MODE
-#endif // SINGLESHOT
 
 //#define  NO_SAVE			// MBO 20200617: Receive only, no saving or processing.
 //#define  NO_SAVE_BUT_STILL_PROCESS   // MBO 20200722: Receive and process the data, but don't save to disk.
@@ -186,14 +160,8 @@ Provided here for reference only.  This is provided by the user.
 static uint32_t min_board_id;
 static uint32_t max_board_id;
 #ifdef FILE_PER_CHANNEL
-    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-        static uint16_t write_inhibit[MAXBOARDID][MAXCHID];
-    #endif	//defined
     static char* file_buffer[MAXBOARDID][MAXCHID];
 #else // not FILE_PER_CHANNEL
-    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-        static uint16_t write_inhibit[MAXBOARDID];
-    #endif //defined
     static char* file_buffer[MAXBOARDID];
 #endif // not FILE_PER_CHANNEL
 
@@ -254,9 +222,7 @@ int32_t recLenGDig;
   int64_t bytes_written_to_file[MAXBOARDID]; // MBO 20200619:  changed to array
 #endif
 
-#ifndef SINGLESHOT
 int64_t totbytesInLargestFile; // MBO 20200619:  new
-#endif // SINGLESHOT
 #ifdef DUMP_UNKNOWN_DATA_TO_DISK
   FILE* diag_unknown_ofile;
 #endif //DUMP_UNKNOWN_DATA_TO_DISK
@@ -869,10 +835,7 @@ void close_all (void){
     #endif
 	#endif // DEBUG_OUTPUT_FILE
 
-
-  #ifndef SINGLESHOT
-      totbytesInLargestFile = 0;
-  #endif // SINGLESHOT
+  totbytesInLargestFile = 0;
 	set_readonly ();
 	return;
 }
@@ -1376,32 +1339,9 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
   #endif
 
     #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-      #ifdef SINGLESHOT
-        #ifdef WRITEGTFORMAT
-          if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
-        #else
-          if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
-        #endif // WRITEGTFORMAT
-          {
-            write_inhibit[board_id][ch_id] = 1;
-            return packet_length_in_bytes + sizeof(soe);
-          }
-      #endif // SINGLESHOT
-
       if (!FILE_OPEN_CHECK(ofile[board_id][ch_id]))
     #else
-      #ifdef SINGLESHOT
-        #ifdef WRITEGTFORMAT
-          if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
-        #else
-          if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
-        #endif // WRITEGTFORMAT
-          {
-            write_inhibit[board_id] = 1;
-            return packet_length_in_bytes + sizeof(soe);
-          }
-      #endif // SINGLESHOT
-        if (!FILE_OPEN_CHECK(ofile[board_id]))
+      if (!FILE_OPEN_CHECK(ofile[board_id]))
     #endif
 
       {
@@ -1450,16 +1390,10 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
         /* open file */
           #ifdef FILE_PER_CHANNEL	// MBO 20200616:
               ofile[board_id][ch_id] = fopen (str, "wb");
-              #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                  write_inhibit[board_id][ch_id] = 0;
-              #endif
               file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
               setvbuf(ofile[board_id][ch_id], file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
           #else
               ofile[board_id] = fopen (str, "wb");
-              #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                  write_inhibit[board_id] = 0;
-              #endif
               file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
               setvbuf(ofile[board_id], file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
           #endif
@@ -1660,9 +1594,6 @@ int main (int32_t argc, char **argv){
 	int32_t num_bytes_read = 0;
 	//int64_t bytes_written_to_file = 0; // MBO 20200619:  changed to array
 
-  #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-    uint32_t all_inhibited;
-  #endif // defined
   uint32_t i;
   #ifdef FILE_PER_CHANNEL	// MBO 20200616:
     int32_t j;
@@ -1685,16 +1616,7 @@ int main (int32_t argc, char **argv){
         #endif
     #endif 
 	//======================= Operation mode
-    #ifdef SINGLESHOT
-        printf ("Operating Mode: Single Shot\n");
-		#ifdef FULL_FILE_MODE
-			printf ("Stop Mode: All Files Full\n");
-		#else
-			printf ("Stop Mode: First File Full\n");
-		#endif 
-	#else
-	    printf ("Operating Mode: Continuous\n");
-    #endif 
+  printf ("Operating Mode: Continuous\n");
 	//======================= Disk IO
   printf ("Disk IO Library: ANSI C\n");
 	//======================= Network Library
@@ -1740,18 +1662,12 @@ int main (int32_t argc, char **argv){
       for (j = 0; j < MAXCHID; j++) {
         bytes_written_to_file[i][j] = 0;
         ofile[i][j] = 0;
-      #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-        write_inhibit[i][j] = 2;
-      #endif // FULL_FILE_MODE
       }
     }
   #else
     for (i = 0; i < MAXBOARDID; i++) {
       bytes_written_to_file[i] = 0;
       ofile[i] = 0;
-      #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-        write_inhibit[i] = 2;
-      #endif // FULL_FILE_MODE
     }
   #endif // FILE_PER_CHANNEL
 
@@ -1918,25 +1834,6 @@ int main (int32_t argc, char **argv){
 			do{
 				/* if we get here we have data to dump to disk */
 							#ifndef NO_SAVE_BUT_STILL_PROCESS
-								#ifdef SINGLESHOT
-                                    #if defined(FULL_FILE_MODE) && (!defined(SINGLE_FILE))
-                                        if (min_board_id <= max_board_id){
-                                            all_inhibited = 1;
-                                            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                                for (i = min_board_id; i <= max_board_id; i++){
-                                                    for (j = 0; j < MAXCHID; j++){
-                                                        if (write_inhibit[i][j] == 0)all_inhibited = 0;
-													}
-												}
-                                            #else
-                                                for (i = min_board_id; i <= max_board_id; i++){
-                                                    if (write_inhibit[i] == 0) all_inhibited = 0;
-												}
-                                            #endif // FILE_PER_CHANNEL
-                                            if (all_inhibited == 1) forced_stop();
-                                        }
-									#endif // defined
-								#else
 									if ((totbytesInLargestFile + num_bytes_read) > max_file_size){
 										/* set the new file name */
 										#ifdef __WIN32__
@@ -1946,11 +1843,8 @@ int main (int32_t argc, char **argv){
 										#endif 
 
 										/* properly close the old files */
-										#ifdef SINGLESHOT
-											forced_stop();
-										#else
-											close_all();
-										#endif 
+										
+                    close_all();
 
 										chunck++;
                                         #ifdef FOLDER_PER_RUN
@@ -1968,7 +1862,6 @@ int main (int32_t argc, char **argv){
 
 										//print_info (totbytes);
 									}
-								#endif // defined
 							#endif // not NO_SAVE_BUT_STILL_PROCESS
 
 
@@ -1991,10 +1884,6 @@ int main (int32_t argc, char **argv){
                                 }else{
                                     input2 += st;
                                     num_bytes_read -= st;
-								#if defined(SINGLESHOT) && ((!defined(FULL_FILE_MODE)) || (defined(SINGLE_FILE)))
-                                    /* properly close the old files */
-                                    forced_stop();
-                                #endif // defined
                                 }
 							#else
 								nwritten = num_bytes_read;
@@ -2003,9 +1892,7 @@ int main (int32_t argc, char **argv){
 							/* keep user informed */
 
 							totbytes += nwritten;
-#if(0)
 							printf ("nwritten=%i, totbytes=%lli\n", nwritten, totbytes);
-#endif
 							tnow = time (NULL);
 							if ((tnow - tthen) >=  SUMMARY_OUTPUT_INTERVAL){
 								print_info (totbytes);
@@ -2019,23 +1906,21 @@ int main (int32_t argc, char **argv){
 							/* range because that makes it much easier	*/
 							/* to merger the data later on */
 
-							#ifndef SINGLESHOT                      
-                if (min_board_id <= max_board_id){
-                  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                      for (i = min_board_id; i <= max_board_id; i++){
-                          for (j = 0; j < MAXCHID; j++){
-                              if (totbytesInLargestFile < bytes_written_to_file[i][j])
-                                  totbytesInLargestFile = bytes_written_to_file[i][j];
-                          }
+              if (min_board_id <= max_board_id){
+                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                    for (i = min_board_id; i <= max_board_id; i++){
+                        for (j = 0; j < MAXCHID; j++){
+                            if (totbytesInLargestFile < bytes_written_to_file[i][j])
+                                totbytesInLargestFile = bytes_written_to_file[i][j];
                         }
-                  #else
-                      for (i = min_board_id; i <= max_board_id; i++){
-                          if (totbytesInLargestFile < bytes_written_to_file[i])
-                              totbytesInLargestFile = bytes_written_to_file[i];
-                          }
-                  #endif // FILE_PER_CHANNEL
-                }
-              #endif // SINGLESHOT
+                      }
+                #else
+                    for (i = min_board_id; i <= max_board_id; i++){
+                        if (totbytesInLargestFile < bytes_written_to_file[i])
+                            totbytesInLargestFile = bytes_written_to_file[i];
+                        }
+                #endif // FILE_PER_CHANNEL
+              }
 						} while (st > 0);
 
 				};
