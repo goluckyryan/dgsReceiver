@@ -119,7 +119,7 @@
 #define DIG_MIN_HEADER_LENGTH_BYTES DIG_MIN_HEADER_LENGTH_UINT32 * 4
 // TRIG_MIN_HEADER_LENGTH_UINT32: The smallest trigger header than can be processed, in
 //	terms of 32-bit words.
-#define TRIG_MIN_HEADER_LENGTH_UINT32 8
+#define TRIG_MIN_HEADER_LENGTH_UINT32 16
 // TRIG_MIN_HEADER_LENGTH_BYTES: The smallest trigger header than can be processed, in
 //	terms of bytes.
 #define TRIG_MIN_HEADER_LENGTH_BYTES TRIG_MIN_HEADER_LENGTH_UINT32 * 4
@@ -455,6 +455,11 @@ void setsocketoption(int32_t sock){
 
 int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize) {
 
+  // Get data from network socket
+  // there are few types of return data
+
+  debug = 0;
+
 	struct rcvrInstance *instance;
 	struct reqPacket request;
 	evtServerRetStruct firstreply;
@@ -483,12 +488,15 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 
 		setsocketoption(instance->recSock);
 
+    // establish a connection to a remote server, retunr 0 for success
 		if (connect (instance->recSock, (struct sockaddr *) &instance->adr_srvr, instance->len_inet) < 0){
 			if (has_connected == 1) printf ("connect failed %s\n", strerror (errno));
 			close (instance->recSock);
 			instance->recSock = -1;
 			return -1;
 		}
+
+    if (debug > 0) printf ("have socket ?  %d \n", instance->recSock);
 
 		// MBO 20200616: Let's try queueing up 6 requests:
 		/*
@@ -503,6 +511,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 		}*/
 
 		request.type = htonl (CLIENT_REQUEST_EVENTS);
+    // send data to the netwrok socket
 		if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
 			printf ("request send failed\n");
 			close (instance->recSock);
@@ -510,26 +519,24 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 			return -1;
 		}else{
 			if (debug > 0) {
-				printf (" sent request data=");
+				printf (" sent request data=\n");
 				for(unsigned int i=0; i < (sizeof (struct reqPacket)); i++){
-					printf ("%08X \n", ((char *) &request)[i]);
+					printf ("\t 0x%08X \n", ((char *) &request)[i]);
 				}
 			}
 		}
-	}// end of if instance->recSock == -1
-
-	if (debug > 0) printf ("have socket \n");
-
+	}   
+  
 	while (bytesret < (int32_t)(sizeof (evtServerRetStruct))){
-		//	if (debug > 0) printf ("to read socket\n");
-		numret = recv (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret, 0);
+    // receive data over network socket, return number of byte received, 0 = closed by peer, -1 error
+    numret = recv (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret, 0);
 		if (numret <= 0){
 			if (debug > 0) printf ("Error, no more data: need: %d total: %d\n", (int32_t)(sizeof (evtServerRetStruct)) - (int32_t)(bytesret), (uint32_t)(sizeof (evtServerRetStruct)));
 			break;
 		}else{
 			bytesret += numret;
 			if (debug > 0){
-				printf ("received bytes=%d, bytesret=%d\n", numret, bytesret);
+				printf ("received bytes=%d, bytesret=%d | %d\n", numret, bytesret, (int32_t)(sizeof (evtServerRetStruct)));
 				printf ("received data=\n");
 				for(unsigned int i=0;i < (sizeof (struct reqPacket)); i++){
 					printf ("%08X \n", (((char*)((void *)(&firstreply.type))) + bytesret)[i]);
@@ -543,21 +550,21 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 		return -1;
 	}
 	temptype = ntohl (firstreply.type) & 0x000000FF;
+
+  if (debug > 0 ) printf( "firstreply | 0x%08X -> 0x%08X, temptype %d\n", firstreply.type, ntohl(firstreply.type), temptype);
 	
 	if (temptype == SERVER_SUMMARY){
-
-		if (debug > 0) printf ("SERVER_SUMMARY \n");
-
-		// for dgs- this is total size of data to get. not size of each indiv. record.
+    // for dgs- this is total size of data to get. not size of each indiv. record.
 		recsize = ntohl (firstreply.recLen);
 		numrecs = ntohl (firstreply.recs);
-
-		if (debug > 0) printf ("recsize =%d numrecs =%d\n", recsize, numrecs);
-
+    
+		if (debug > 0) {
+      printf ("SERVER_SUMMARY \n");
+		  printf ("recsize =%d numrecs =%d\n", recsize, numrecs);
+    }
 
 		/* ask for the next data */
 		request.type = htonl (CLIENT_REQUEST_EVENTS);
-
 
 		if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
 			printf ("request send failed\n");
@@ -567,39 +574,37 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 		}else{
 			if (debug > 0) printf ("requested CLIENT_REQUEST_EVENTS \n");
 		}
-	}else{
-		if (temptype == INSUFF_DATA){
-			if (debug > 0) printf ("received INSUFF_DATA\n");
 
-			/* go ahead and ask again */
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-	   
-	       	if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
-				printf ("request send failed\n");
-				close (instance->recSock);
-				instance->recSock = -1;
-				return -1;
-			}else{
-				if (debug > 0) printf ("sent CLIENT_REQUEST_EVENTS\n");
-			}
-			return -1;
-		}else{
-			/* No point in asking for more; we arecsize =16re bailing out */
-			if (temptype == SERVER_SENDER_OFF){
-				if (debug > 0) printf ("temptype == SERVER_SENDER_OFF\n");
-				//printf("Sender not enabled\n");
-			}else{
-				printf ("Illegal first packet type %d\n", temptype);
-			}
+	}else if (temptype == INSUFF_DATA){
+    if (debug > 0) printf ("received INSUFF_DATA\n");
 
-			if (debug > 0) printf ("to close socket\n");
+    /* go ahead and ask again */
+    request.type = htonl (CLIENT_REQUEST_EVENTS);
+    if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
+      printf ("request send failed\n");
+      close (instance->recSock);
+      instance->recSock = -1;
+      return -1;
+    }else{
+      if (debug > 0) printf ("sent CLIENT_REQUEST_EVENTS\n");
+    }
+    return -1;
+  }else{
+    /* No point in asking for more; we arecsize =16re bailing out */
+    if (temptype == SERVER_SENDER_OFF){
+      if (debug > 0) printf ("temptype == SERVER_SENDER_OFF\n");
+      //printf("Sender not enabled\n");
+    }else{
+      printf ("Illegal first packet type %d\n", temptype);
+    }
 
+    if (debug > 0) printf ("to close socket\n");
 
-			close (instance->recSock);
-			instance->recSock = -1;
-			return -1;
-		}
-	}
+    close (instance->recSock);
+    instance->recSock = -1;
+    return -1;
+  }
+
 
 	/* if you got here, there is data to be read */
 	//recsperbuf = INBUFSIZE / (recsize * 4);
@@ -612,7 +617,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 	bytesret = 0;
 	while (bytesret < numbytesleft){
 
-	    //if (debug > 0) printf ("to read data \n");
+    //if (debug > 0) printf ("to read data \n");
 		numret = recv (instance->recSock, (char*)(datamem + bytesret), numbytesleft - bytesret, 0);
 
 		if (debug > 0) printf ("got %d bytes	\n", numret);
@@ -686,10 +691,10 @@ int32_t print_info (int64_t totbytes){
 	deltaTime = tnow - tthen;
 	deltaBytes = totbytes - last_totbytes;
 
-	printf ("totbytes=%lli\n", totbytes);
-	printf ("last_totbytes=%lli\n", last_totbytes);
-	printf ("t_now =%lli\n", tnow);
-	printf ("t_then=%lli\n", tthen);
+	printf ("totbytes=%li\n", totbytes);
+	printf ("last_totbytes=%li\n", last_totbytes);
+	printf ("t_now =%li\n", tnow);
+	printf ("t_then=%li\n", tthen);
 	printf ("deltaTime=%f\n", (float) deltaTime);
 	printf ("deltaBytes=%f\n", (float) deltaBytes);
 
@@ -1302,6 +1307,8 @@ int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write) {
 
 int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes) {
 
+  debug = 1;
+
 	printf("#### %s\n", __func__);
 
 	// struct inbuf *inlist = 0;
@@ -1324,21 +1331,21 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 	static uint32_t header_type = 0;
 	static uint32_t event_type = 0;
 //	static uint32_t header_length = 0;
-    static uint32_t timestamp_lower = 0;
-    static uint32_t timestamp_upper = 0;
-    // additional data fields to decode for triggers:
-    static uint32_t trigger_type = 0;
-    static uint32_t timestamp_middle = 0;
-    static uint32_t wheel = 0;
-    static uint32_t aux_data = 0;
-    static uint32_t tdc_ts_lo = 0;
-    static uint32_t trig_acks = 0;
-    static uint32_t offset[4] = {0,0,0,0};
-    static uint32_t val_p0_p1 = 0;
-    static uint32_t val_p2_p3 = 0;
+  static uint32_t timestamp_lower = 0;
+  static uint32_t timestamp_upper = 0;
+// additional data fields to decode for triggers:
+  static uint32_t trigger_type = 0;
+  static uint32_t timestamp_middle = 0;
+  static uint32_t wheel = 0;
+  static uint32_t aux_data = 0;
+  static uint32_t tdc_ts_lo = 0;
+  static uint32_t trig_acks = 0;
+  static uint32_t offset[4] = {0,0,0,0};
+  static uint32_t val_p0_p1 = 0;
+  static uint32_t val_p2_p3 = 0;
 
 
-    bool is_digitizer_data = true;
+  bool is_digitizer_data = true;
 	bool is_trigger_data = true;
 	#ifdef WRITEGTFORMAT
 		GEBDATA Geb;
@@ -1355,8 +1362,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 
 	if (!buffer) return -3;
 
-	if (debug > 0) printf ("buffer ok\n");
-
+	if (debug > 0) printf ("buffer non null\n");
 
 	//here evtlen in dgs means len of all events in bytes
 	buffer_size = size2write;
@@ -1371,439 +1377,428 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 	buffer_position = 0;
 	buffer_uint32 = (uint32_t *) buffer;
 
-	while (buffer_position < buffer_size)
-    {
-        // gtReciever 6 method
-        // check first word for proper data alignment
-        if ((*buffer_uint32 & ANY_SOE_MASK) != ANY_SOE)
-        {
-            return dumpUnknownDataToDaigFile(buffer, size2write);
+	while (buffer_position < buffer_size){
+    // gtReciever 6 method
+    // check first word for proper data alignment
+
+    printf("Buffer HEAD : 0x%08X | ", *buffer_uint32);
+
+    // if ((*buffer_uint32 & ANY_SOE_MASK) != ANY_SOE){
+    //   printf(" ANY SOE \n");
+    //   return dumpUnknownDataToDaigFile(buffer, size2write);
+      
+    // }else 
+    if ((*buffer_uint32 & DIG_SOE_MASK) == DIG_SOE){ 
+      printf(" DIG SOE \n");
+      // If the first word is 0xAAAAAAAA (DIG_SOE), then process as digitizer data.
+      is_digitizer_data = true;
+      is_trigger_data = false;
+      
+      /* Skip the 0xAAAAAAAA */
+      buffer_position += sizeof (uint32_t);
+      buffer_uint32++;
+      
+      if (buffer_position + DIG_MIN_HEADER_LENGTH_BYTES > buffer_size){
+        printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
+        return -2;
+      }
+
+      /* extract the timestamp from the header */
+      /* after swapping the bytes */
+      for (i = 0; i < DIG_MIN_HEADER_LENGTH_UINT32; i++){
+        hdr[i] = buffer_uint32[i];
+
+          /* before 4 3 2 1 */
+          /*		  | | | | */
+          /* after  1 2 3 4 */
+
+          // MBO 20200616: use ntohl here instead?
+          t1 = (hdr[i] & 0x000000ff) << 24;
+          t2 = (hdr[i] & 0x0000ff00) << 8;
+          t3 = (hdr[i] & 0x00ff0000) >> 8;
+          t4 = (hdr[i] & 0xff000000) >> 24;
+          hdr[i] = t1 + t2 + t3 + t4;
+          /*
+          hdr[i] = ntohl(hdr[i]);	// MBO 20200616:
+          */
+      }
+
+      //************ strip out header bits **************/
+      //digitizer format
+      //word	|  31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 | 15 | 14 | 13 | 12 | 11 | 10 | 09 | 08 | 07 | 06 | 05 | 04 | 03 | 02 | 01 | 00
+      //0		|                                                                      FIXED 0xAAAAAAAA                                                                          |
+      //1		|     Geo Addr            |                 PACKET LENGTH                        |                    USER PACKET DATA                       |     CHANNEL ID    |
+      //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
+      //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
+
+      ch_id					= (hdr[0] & 0x0000000F) >> 0;	// Word 1: 3..0
+      board_id 				= (hdr[0] & 0x0000FFF0) >> 4;	// Word 1: 15..4
+      packet_length_in_words	= (hdr[0] & 0x07FF0000) >> 16;	// Word 1: 26..16
+  //	geo_addr				= (hdr[0] & 0xF8000000) >> 27;	// Word 1: 31..27
+      #ifdef WRITEGTFORMAT
+          timestamp_lower 		= (hdr[1] & 0xFFFFFFFF) >> 0;	// Word 2: 31..0
+          timestamp_upper 		= (hdr[2] & 0x0000FFFF) >> 0;	// Word 3: 15..0
+      #endif
+      header_type				= (hdr[2] & 0x000F0000) >> 16;	// Word 3: 19..16
+      event_type				= (hdr[2] & 0x03800000) >> 23;	// Word 3: 25..23
+  //	header_length			= (hdr[2] & 0xFC000000) >> 26;	// Word 3: 31..26
+
+      packet_length_in_bytes	= packet_length_in_words * 4;
+
+      #ifdef WRITEGTFORMAT
+          /* create the GEB header */
+          Geb.type = GEB_TYPE_DGS;
+          Geb.length = packet_length_in_bytes;
+          //full 48-bit timestamp stored in 64-bit uint32_t.
+          Geb.timestamp = ((uint64_t)(timestamp_upper)) << 32;
+          Geb.timestamp |= (uint64_t)(timestamp_lower);
+      #endif //WRITEGTFORMAT
+
+      if (buffer_position + packet_length_in_bytes > buffer_size){
+        printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
+        return -2;
+      }
+
+      if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32){
+        printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
+        return -2;
+      }else if (buffer_position + packet_length_in_bytes < buffer_size){
+        if (buffer_uint32[packet_length_in_words] != DIG_SOE){
+          printf ("ooops:	Packet length should be %i, but 0xAAAAAAAA not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
+          return -2;
         }
-        else if ((*buffer_uint32 & DIG_SOE_MASK) == DIG_SOE)
+      }
+    }else if ((*buffer_uint32 & TRIG_SOE_MASK) == TRIG_SOE){
+      printf(" TRIG SOE \n");
+
+      // If the first word is 0xAAAAXXXX (TRIG_SOE), where XXXX is not AAAA, then process as trigger data.
+      is_digitizer_data = false;
+      is_trigger_data = true;
+
+      if (buffer_position + TRIG_MIN_HEADER_LENGTH_BYTES > buffer_size){
+        printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
+        return -2;
+      }
+
+      /* extract the timestamp from the header */
+      /* after swapping the bytes */
+      /// Ryan 
+
+      printf("----- buffer :\n");
+      for (i = 0; i < TRIG_MIN_HEADER_LENGTH_UINT32; i ++){
+        hdr[i] = ntohl(buffer_uint32[i]);
+        printf("%2d | 0x%08X -> 0x%08X \n",i,  buffer_uint32[i], hdr[i]);
+
+        /* before 4 3 2 1 */
+        /*		  | | | | */
+        /* after  1 2 3 4 */
+
+        // MBO 20200616: use ntohl here instead?
+        t1 = (hdr[i] & 0x000000ff) << 24;
+        t2 = (hdr[i] & 0x0000ff00) << 8;
+        t3 = (hdr[i] & 0x00ff0000) >> 8;
+        t4 = (hdr[i] & 0xff000000) >> 24;
+        hdr[i] = t1 + t2 + t3 + t4;
+        /*
+        hdr[i] = ntohl(hdr[i]);	// MBO 20200616:
+        */
+      }
+
+      //************ reparse into a digitizer like header **************/
+      //digitizer format
+      //word	|  31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 | 15 | 14 | 13 | 12 | 11 | 10 | 09 | 08 | 07 | 06 | 05 | 04 | 03 | 02 | 01 | 00
+      //0		|                                                                      FIXED 0xAAAAAAAA                                                                          |
+      //1		|     Geo Addr            |                 PACKET LENGTH                        |                    USER PACKET DATA                       |     CHANNEL ID    |
+      //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
+      //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
+
+      ch_id					= 0xF;//
+  //  AAAA        			= (hdr[0] & 0x0000FFFF) >> 0;   skip the AAAA's
+      trigger_type			= (hdr[0] & 0xFFFF0000) >> 16;
+      timestamp_lower 		= (hdr[1] & 0x0000FFFF) >> 0;
+      timestamp_middle        = (hdr[1] & 0xFFFF0000) >> 16;
+      timestamp_upper 		= (hdr[2] & 0x0000FFFF) >> 0;
+      wheel	                = (hdr[2] & 0xFFFF0000) >> 16;
+      aux_data                = (hdr[3] & 0x0000FFFF) >> 0;
+      board_id	            = (hdr[3] & 0xFFFF0000) >> 16; 
+      tdc_ts_lo               = (hdr[4] & 0x0000FFFF) >> 0;
+      trig_acks               = (hdr[4] & 0xFFFF0000) >> 16;
+      offset[0]               = (hdr[5] & 0x0000FFFF) >> 0;
+      offset[1]               = (hdr[5] & 0xFFFF0000) >> 16;
+      offset[2]               = (hdr[6] & 0x0000FFFF) >> 0;
+      offset[3]               = (hdr[6] & 0xFFFF0000) >> 16;
+      val_p0_p1               = (hdr[7] & 0x0000FFFF) >> 0;
+      val_p2_p3               = (hdr[7] & 0xFFFF0000) >> 16;
+
+      // Trim the board id, or "user package data" to the maximum
+      // number of bits supported by the digitizer header.
+      board_id = board_id & DIG_BOARD_ID_MASK;
+      packet_length_in_bytes	= REFORMATTED_HEADER_LENGTH_BYTES - 4;
+
+      reformatted_hdr[0] = 0xAAAAAAAA;
+      reformatted_hdr[1] = ch_id              << 0;
+      reformatted_hdr[1] |= board_id          << 4;
+      reformatted_hdr[1] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 16;
+      reformatted_hdr[2] = timestamp_lower    << 0;
+      reformatted_hdr[2] |= timestamp_middle  << 16;
+      reformatted_hdr[3] = timestamp_upper    << 0;
+      reformatted_hdr[3] |= 0x7               << 23; // event_type
+      reformatted_hdr[3] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 26;
+      reformatted_hdr[4] = tdc_ts_lo            << 0;
+      reformatted_hdr[4] |= trigger_type      << 16;
+      reformatted_hdr[5] = offset[0]          << 0;
+      reformatted_hdr[5] |= offset[1]         << 16;
+      reformatted_hdr[6] = offset[2]          << 0;
+      reformatted_hdr[6] |= offset[3]         << 16;
+      reformatted_hdr[7] = aux_data           << 0;
+      reformatted_hdr[7] |= wheel             << 16;
+      reformatted_hdr[8] = val_p0_p1          << 0;
+      reformatted_hdr[8] |= val_p2_p3         << 16;
+      reformatted_hdr[9] = 0x00               << 0;       // unused
+      reformatted_hdr[9] |= trig_acks          << 16;
+
+      #ifdef WRITEGTFORMAT
+        /* create the GEB header */
+        Geb.type = GEB_TYPE_DGS;
+        Geb.length = packet_length_in_bytes;
+        //full 48-bit timestamp stored in 64-bit uint32_t.
+        Geb.timestamp = ((uint64_t)(timestamp_upper)) << 32;
+        Geb.timestamp |= ((uint64_t)(timestamp_middle)) << 16;
+        Geb.timestamp |= (uint64_t)(timestamp_lower);
+      #endif //WRITEGTFORMAT
+
+      if (buffer_position + packet_length_in_bytes > buffer_size){
+        printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
+        return -2;
+      }
+
+      if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32){
+        printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
+        return -2;
+      }else if (buffer_position + packet_length_in_bytes < buffer_size){
+          if (buffer_uint32[packet_length_in_words] != TRIG_SOE){
+            printf ("ooops:	Packet length should be %i, but 0xAAAAXXXX not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
+            return -2;
+          }
+      }
+    }else{
+      printf(" Other SOE \n");
+      return dumpUnknownDataToDaigFile(buffer, size2write);
+    }
+
+
+    /* see if the proper file is open */
+    /* or open it */
+
+  #ifdef FILTER_TYPE_F
+    if(header_type != 0xF) {
+  #else
+    // report an error if the header type is 0xF and the channel number is not > 9
+    if ((header_type == 0xF) && (ch_id <= 9)){
+      printf ("Error: Type F header reported as channel 9 or less. ch_id = %d", ch_id);
+    }else{
+  #endif
+
+  #ifdef SINGLE_FILE
+    #ifdef SINGLESHOT
+      #ifdef WRITEGTFORMAT
+        if (bytes_written_to_file + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
+      #else
+        if (bytes_written_to_file + packet_length_in_bytes + sizeof(soe) > max_file_size)
+      #endif // WRITEGTFORMAT
         {
-            // If the first word is 0xAAAAAAAA (DIG_SOE), then process as digitizer data.
-            is_digitizer_data = true;
-            is_trigger_data = false;
+          return packet_length_in_bytes + sizeof(soe);
+        }
+    #endif // SINGLESHOT
+    
+    if (!FILE_OPEN_CHECK(ofile))
+  #else
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+      #ifdef SINGLESHOT
+        #ifdef WRITEGTFORMAT
+          if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
+        #else
+          if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
+        #endif // WRITEGTFORMAT
+          {
+            write_inhibit[board_id][ch_id] = 1;
+            return packet_length_in_bytes + sizeof(soe);
+          }
+      #endif // SINGLESHOT
 
-            /* Skip the 0xAAAAAAAA */
-            buffer_position += sizeof (uint32_t);
-            buffer_uint32++;
+      if (!FILE_OPEN_CHECK(ofile[board_id][ch_id]))
+    #else
+      #ifdef SINGLESHOT
+        #ifdef WRITEGTFORMAT
+          if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
+        #else
+          if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
+        #endif // WRITEGTFORMAT
+          {
+            write_inhibit[board_id] = 1;
+            return packet_length_in_bytes + sizeof(soe);
+          }
+      #endif // SINGLESHOT
+        if (!FILE_OPEN_CHECK(ofile[board_id]))
+    #endif
+  #endif // else of ifdef SINGLE_FILE
 
-            if (buffer_position + DIG_MIN_HEADER_LENGTH_BYTES > buffer_size)
-            {
-                printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
-                return -2;
-            }
+      {
+        if (is_trigger_data){
+          /* filename */
+          #ifdef SINGLE_FILE
+                  sprintf (str, "trig_%s", fn);
+          #else
+              #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                  sprintf (str, "trig_%s_%4.4i_%01X", fn, board_id, ch_id);
+              #else
+                  sprintf (str, "trig_%s_%4.4i", fn, board_id);
+              #endif
+          #endif
 
-            /* extract the timestamp from the header */
-            /* after swapping the bytes */
-            for (i = 0; i < DIG_MIN_HEADER_LENGTH_UINT32; i++)
-            {
-                hdr[i] = buffer_uint32[i];
+          #ifdef DEBUG_OUTPUT_FILE
+              #ifdef SINGLE_FILE
+                  sprintf (diag_str, "diag_trig_%s", fn);
+              #else
+                  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                      sprintf (diag_str, "diag_trig_%s_%4.4i_%01X", fn, board_id, ch_id);
+                  #else
+                      sprintf (diag_str, "diag_trig_%s_%4.4i", fn, board_id);
+                  #endif
+              #endif
+          #endif // DEBUG_OUTPUT_FILE
 
-                /* before 4 3 2 1 */
-                /*		  | | | | */
-                /* after  1 2 3 4 */
-
-                // MBO 20200616: use ntohl here instead?
-                t1 = (hdr[i] & 0x000000ff) << 24;
-                t2 = (hdr[i] & 0x0000ff00) << 8;
-                t3 = (hdr[i] & 0x00ff0000) >> 8;
-                t4 = (hdr[i] & 0xff000000) >> 24;
-                hdr[i] = t1 + t2 + t3 + t4;
-                /*
-                hdr[i] = ntohl(hdr[i]);	// MBO 20200616:
-                */
-            }
-
-            //************ strip out header bits **************/
-            //digitizer format
-            //word	|  31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 | 15 | 14 | 13 | 12 | 11 | 10 | 09 | 08 | 07 | 06 | 05 | 04 | 03 | 02 | 01 | 00
-            //0		|                                                                      FIXED 0xAAAAAAAA                                                                          |
-            //1		|     Geo Addr            |                 PACKET LENGTH                        |                    USER PACKET DATA                       |     CHANNEL ID    |
-            //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
-            //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
-
-            ch_id					= (hdr[0] & 0x0000000F) >> 0;	// Word 1: 3..0
-            board_id 				= (hdr[0] & 0x0000FFF0) >> 4;	// Word 1: 15..4
-            packet_length_in_words	= (hdr[0] & 0x07FF0000) >> 16;	// Word 1: 26..16
-        //	geo_addr				= (hdr[0] & 0xF8000000) >> 27;	// Word 1: 31..27
-            #ifdef WRITEGTFORMAT
-                timestamp_lower 		= (hdr[1] & 0xFFFFFFFF) >> 0;	// Word 2: 31..0
-                timestamp_upper 		= (hdr[2] & 0x0000FFFF) >> 0;	// Word 3: 15..0
+        }else{
+            /* filename */
+            #ifdef SINGLE_FILE
+                    sprintf (str, "%s", fn);
+            #else
+                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                    sprintf (str, "%s_%4.4i_%01X", fn, board_id, ch_id);
+                #else
+                    sprintf (str, "%s_%4.4i", fn, board_id);
+                #endif
             #endif
-            header_type				= (hdr[2] & 0x000F0000) >> 16;	// Word 3: 19..16
-            event_type				= (hdr[2] & 0x03800000) >> 23;	// Word 3: 25..23
-        //	header_length			= (hdr[2] & 0xFC000000) >> 26;	// Word 3: 31..26
-
-            packet_length_in_bytes	= packet_length_in_words * 4;
-
-            #ifdef WRITEGTFORMAT
-                /* create the GEB header */
-                Geb.type = GEB_TYPE_DGS;
-                Geb.length = packet_length_in_bytes;
-                //full 48-bit timestamp stored in 64-bit uint32_t.
-                Geb.timestamp = ((uint64_t)(timestamp_upper)) << 32;
-                Geb.timestamp |= (uint64_t)(timestamp_lower);
-            #endif //WRITEGTFORMAT
-
-            if (buffer_position + packet_length_in_bytes > buffer_size)
-            {
-                printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
-                return -2;
-            }
-
-            if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32)
-            {
-                printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
-                return -2;
-            }
-            else if (buffer_position + packet_length_in_bytes < buffer_size)
-            {
-                if (buffer_uint32[packet_length_in_words] != DIG_SOE)
-                {
-                    printf ("ooops:	Packet length should be %i, but 0xAAAAAAAA not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
-                    return -2;
-                }
-            }
-        }
-        else if ((*buffer_uint32 & TRIG_SOE_MASK) == TRIG_SOE)
-        {
-            // If the first word is 0xAAAAXXXX (TRIG_SOE), where XXXX is not AAAA, then process as trigger data.
-            is_digitizer_data = false;
-            is_trigger_data = true;
-
-            if (buffer_position + TRIG_MIN_HEADER_LENGTH_BYTES > buffer_size)
-            {
-                printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
-                return -2;
-            }
-
-            /* extract the timestamp from the header */
-            /* after swapping the bytes */
-            for (i = 0; i < TRIG_MIN_HEADER_LENGTH_UINT32; i++)
-            {
-                hdr[i] = buffer_uint32[i];
-
-                /* before 4 3 2 1 */
-                /*		  | | | | */
-                /* after  1 2 3 4 */
-
-                // MBO 20200616: use ntohl here instead?
-                t1 = (hdr[i] & 0x000000ff) << 24;
-                t2 = (hdr[i] & 0x0000ff00) << 8;
-                t3 = (hdr[i] & 0x00ff0000) >> 8;
-                t4 = (hdr[i] & 0xff000000) >> 24;
-                hdr[i] = t1 + t2 + t3 + t4;
-                /*
-                hdr[i] = ntohl(hdr[i]);	// MBO 20200616:
-                */
-            }
-
-            //************ reparse into a digitizer like header **************/
-            //digitizer format
-            //word	|  31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 | 16 | 15 | 14 | 13 | 12 | 11 | 10 | 09 | 08 | 07 | 06 | 05 | 04 | 03 | 02 | 01 | 00
-            //0		|                                                                      FIXED 0xAAAAAAAA                                                                          |
-            //1		|     Geo Addr            |                 PACKET LENGTH                        |                    USER PACKET DATA                       |     CHANNEL ID    |
-            //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
-            //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
-
-            ch_id					= 0xF;//
-        //  AAAA        			= (hdr[0] & 0x0000FFFF) >> 0;   skip the AAAA's
-            trigger_type			= (hdr[0] & 0xFFFF0000) >> 16;
-            timestamp_lower 		= (hdr[1] & 0x0000FFFF) >> 0;
-            timestamp_middle        = (hdr[1] & 0xFFFF0000) >> 16;
-            timestamp_upper 		= (hdr[2] & 0x0000FFFF) >> 0;
-            wheel	                = (hdr[2] & 0xFFFF0000) >> 16;
-            aux_data                = (hdr[3] & 0x0000FFFF) >> 0;
-            board_id	            = (hdr[3] & 0xFFFF0000) >> 16;
-            tdc_ts_lo               = (hdr[4] & 0x0000FFFF) >> 0;
-            trig_acks               = (hdr[4] & 0xFFFF0000) >> 16;
-            offset[0]               = (hdr[5] & 0x0000FFFF) >> 0;
-            offset[1]               = (hdr[5] & 0xFFFF0000) >> 16;
-            offset[2]               = (hdr[6] & 0x0000FFFF) >> 0;
-            offset[3]               = (hdr[6] & 0xFFFF0000) >> 16;
-            val_p0_p1               = (hdr[7] & 0x0000FFFF) >> 0;
-            val_p2_p3               = (hdr[7] & 0xFFFF0000) >> 16;
-
-            // Trim the board id, or "user package data" to the maximum
-            // number of bits supported by the digitizer header.
-            board_id = board_id & DIG_BOARD_ID_MASK;
-            packet_length_in_bytes	= REFORMATTED_HEADER_LENGTH_BYTES - 4;
-
-            reformatted_hdr[0] = 0xAAAAAAAA;
-            reformatted_hdr[1] = ch_id              << 0;
-            reformatted_hdr[1] |= board_id          << 4;
-            reformatted_hdr[1] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 16;
-            reformatted_hdr[2] = timestamp_lower    << 0;
-            reformatted_hdr[2] |= timestamp_middle  << 16;
-            reformatted_hdr[3] = timestamp_upper    << 0;
-            reformatted_hdr[3] |= 0x7               << 23; // event_type
-            reformatted_hdr[3] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 26;
-            reformatted_hdr[4] = tdc_ts_lo            << 0;
-            reformatted_hdr[4] |= trigger_type      << 16;
-            reformatted_hdr[5] = offset[0]          << 0;
-            reformatted_hdr[5] |= offset[1]         << 16;
-            reformatted_hdr[6] = offset[2]          << 0;
-            reformatted_hdr[6] |= offset[3]         << 16;
-            reformatted_hdr[7] = aux_data           << 0;
-            reformatted_hdr[7] |= wheel             << 16;
-            reformatted_hdr[8] = val_p0_p1          << 0;
-            reformatted_hdr[8] |= val_p2_p3         << 16;
-            reformatted_hdr[9] = 0x00               << 0;       // unused
-            reformatted_hdr[9] |= trig_acks          << 16;
-
-            #ifdef WRITEGTFORMAT
-                /* create the GEB header */
-                Geb.type = GEB_TYPE_DGS;
-                Geb.length = packet_length_in_bytes;
-                //full 48-bit timestamp stored in 64-bit uint32_t.
-                Geb.timestamp = ((uint64_t)(timestamp_upper)) << 32;
-                Geb.timestamp |= ((uint64_t)(timestamp_middle)) << 16;
-                Geb.timestamp |= (uint64_t)(timestamp_lower);
-            #endif //WRITEGTFORMAT
-
-            if (buffer_position + packet_length_in_bytes > buffer_size)
-            {
-                printf ("ooops:	data block has %i extra bytes\n", buffer_size - buffer_position);
-                return -2;
-            }
-
-            if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32)
-            {
-                printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
-                return -2;
-            }
-            else if (buffer_position + packet_length_in_bytes < buffer_size)
-            {
-                if (buffer_uint32[packet_length_in_words] != TRIG_SOE)
-                {
-                    printf ("ooops:	Packet length should be %i, but 0xAAAAXXXX not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
-                    return -2;
-                }
-            }
-        }
-        else
-        {
-            return dumpUnknownDataToDaigFile(buffer, size2write);
         }
 
-        /* see if the proper file is open */
-        /* or open it */
+        /* make sure it does not exist already */
 
-        #ifdef FILTER_TYPE_F
-        if(header_type != 0xF) {
-        #else
-        // report an error if the header type is 0xF and the channel number is not > 9
-        if ((header_type == 0xF) && (ch_id <= 9))
-        {
-            printf ("Error: Type F header reported as channel 9 or less. ch_id = %d", ch_id);
-        }
-        else
-        {
-        #endif
-        #ifdef SINGLE_FILE
-            #ifdef SINGLESHOT
-                #ifdef WRITEGTFORMAT
-                if (bytes_written_to_file + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
+        fp = open (str, O_RDONLY, 0);
+
+        if (fp != -1){
+          printf ("\n");
+          printf ("----------------------------------------------------\n");
+          printf ("ERROR: file \"%s\" already exists!!! QUIT!\n", str);
+          printf ("			 delete file first if you want to overwrite it\n");
+          printf ("----------------------------------------------------\n");
+          printf ("\n");
+          printf ("\n");
+          close(fp);
+          exit (1);
+        };
+
+        /* open file */
+        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+            #ifdef SINGLE_FILE
+                ofile = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
+            #else
+                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
+                    ofile[board_id][ch_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
                 #else
-                if (bytes_written_to_file + packet_length_in_bytes + sizeof(soe) > max_file_size)
-                #endif // WRITEGTFORMAT
-                {
-                    return packet_length_in_bytes + sizeof(soe);
-                }
-            #endif // SINGLESHOT
-            if (!FILE_OPEN_CHECK(ofile))
+                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
+                    ofile[board_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
+                #endif
+            #endif
         #else
-        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-            #ifdef SINGLESHOT
-                #ifdef WRITEGTFORMAT
-                if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
-                #else
-                if (bytes_written_to_file[board_id][ch_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
-                #endif // WRITEGTFORMAT
-                {
-                    write_inhibit[board_id][ch_id] = 1;
-                    return packet_length_in_bytes + sizeof(soe);
-                }
-            #endif // SINGLESHOT
-
-            if (!FILE_OPEN_CHECK(ofile[board_id][ch_id]))
-        #else
-            #ifdef SINGLESHOT
-                #ifdef WRITEGTFORMAT
-                if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
-                #else
-                if (bytes_written_to_file[board_id] + packet_length_in_bytes + sizeof(soe) > max_file_size)
-                #endif // WRITEGTFORMAT
-                {
-                    write_inhibit[board_id] = 1;
-                    return packet_length_in_bytes + sizeof(soe);
-                }
-            #endif // SINGLESHOT
-            if (!FILE_OPEN_CHECK(ofile[board_id]))
-        #endif
-        #endif // else of ifdef SINGLE_FILE
-            {
-                if (is_trigger_data)
-                {
-                    /* filename */
-                    #ifdef SINGLE_FILE
-                            sprintf (str, "trig_%s", fn);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            sprintf (str, "trig_%s_%4.4i_%01X", fn, board_id, ch_id);
-                        #else
-                            sprintf (str, "trig_%s_%4.4i", fn, board_id);
-                        #endif
+            #ifdef SINGLE_FILE
+                ofile = fopen (str, "wb");
+                file_buffer = (char*)malloc(FILE_BUF_SIZE);
+                setvbuf(ofile, file_buffer, _IOFBF, FILE_BUF_SIZE);
+            #else
+                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                    ofile[board_id][ch_id] = fopen (str, "wb");
+                    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+                        write_inhibit[board_id][ch_id] = 0;
                     #endif
-
-                    #ifdef DEBUG_OUTPUT_FILE
-                        #ifdef SINGLE_FILE
-                                sprintf (diag_str, "diag_trig_%s", fn);
-                        #else
-                            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                sprintf (diag_str, "diag_trig_%s_%4.4i_%01X", fn, board_id, ch_id);
-                            #else
-                                sprintf (diag_str, "diag_trig_%s_%4.4i", fn, board_id);
-                            #endif
-                        #endif
-                    #endif // DEBUG_OUTPUT_FILE
-                }
-                else
-                {
-                    /* filename */
-                    #ifdef SINGLE_FILE
-                            sprintf (str, "%s", fn);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            sprintf (str, "%s_%4.4i_%01X", fn, board_id, ch_id);
-                        #else
-                            sprintf (str, "%s_%4.4i", fn, board_id);
-                        #endif
+                    file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
+                    setvbuf(ofile[board_id][ch_id], file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
+                #else
+                    ofile[board_id] = fopen (str, "wb");
+                    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+                        write_inhibit[board_id] = 0;
                     #endif
-                }
-                /* make sure it does not exist already */
-
-                fp = open (str, O_RDONLY, 0);
-
-                if (fp != -1)
-                    {
-                        printf ("\n");
-                        printf ("----------------------------------------------------\n");
-                        printf ("ERROR: file \"%s\" already exists!!! QUIT!\n", str);
-                        printf ("			 delete file first if you want to overwrite it\n");
-                        printf ("----------------------------------------------------\n");
-                        printf ("\n");
-                        printf ("\n");
-                        close(fp);
-                        exit (1);
-                    };
-
-                /* open file */
+                    file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
+                    setvbuf(ofile[board_id], file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
+                #endif
+            #endif
+        #endif
+                
+        
+        if (is_trigger_data) {
+            #ifdef DEBUG_OUTPUT_FILE
                 #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
                     #ifdef SINGLE_FILE
-                        ofile = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
+                        diag_ofile = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
                     #else
                         #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                             // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                            ofile[board_id][ch_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
+                            diag_ofile[board_id][ch_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
                         #else
                             // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                            ofile[board_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
+                            diag_ofile[board_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
                         #endif
                     #endif
                 #else
                     #ifdef SINGLE_FILE
-                        ofile = fopen (str, "wb");
-                        file_buffer = (char*)malloc(FILE_BUF_SIZE);
-                        setvbuf(ofile, file_buffer, _IOFBF, FILE_BUF_SIZE);
+                        diag_ofile = fopen (diag_str, "wb");
+                        diag_file_buffer = (char*)malloc(FILE_BUF_SIZE);
+                        setvbuf(diag_ofile, diag_file_buffer, _IOFBF, FILE_BUF_SIZE);
                     #else
                         #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            ofile[board_id][ch_id] = fopen (str, "wb");
-                            #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                                write_inhibit[board_id][ch_id] = 0;
-                            #endif
-                            file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
-                            setvbuf(ofile[board_id][ch_id], file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
+                            diag_ofile[board_id][ch_id] = fopen (diag_str, "wb");
+                            diag_file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
+                            setvbuf(diag_ofile[board_id][ch_id], diag_file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
                         #else
-                            ofile[board_id] = fopen (str, "wb");
-                            #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                                write_inhibit[board_id] = 0;
-                            #endif
-                            file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
-                            setvbuf(ofile[board_id], file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
+                            diag_ofile[board_id] = fopen (diag_str, "wb");
+                            diag_file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
+                            setvbuf(diag_ofile[board_id], diag_file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
                         #endif
                     #endif
                 #endif
-                if (is_trigger_data)
-                {
-                    #ifdef DEBUG_OUTPUT_FILE
-                        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                            #ifdef SINGLE_FILE
-                                diag_ofile = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                            #else
-                                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                                    diag_ofile[board_id][ch_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                                #else
-                                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                                    diag_ofile[board_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                                #endif
-                            #endif
-                        #else
-                            #ifdef SINGLE_FILE
-                                diag_ofile = fopen (diag_str, "wb");
-                                diag_file_buffer = (char*)malloc(FILE_BUF_SIZE);
-                                setvbuf(diag_ofile, diag_file_buffer, _IOFBF, FILE_BUF_SIZE);
-                            #else
-                                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                    diag_ofile[board_id][ch_id] = fopen (diag_str, "wb");
-                                    diag_file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
-                                    setvbuf(diag_ofile[board_id][ch_id], diag_file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
-                                #else
-                                    diag_ofile[board_id] = fopen (diag_str, "wb");
-                                    diag_file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
-                                    setvbuf(diag_ofile[board_id], diag_file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
-                                #endif
-                            #endif
-                        #endif
-                    #endif // DEBUG_OUTPUT_FILE
-                }
+            #endif // DEBUG_OUTPUT_FILE
+        }
 
-                printf("First event received from: ");
-                #ifdef SINGLE_FILE
-                #else
-                    printf("BOARD_ID: %3.3i ",board_id);
-                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                        printf("CH_ID: %01X ",ch_id);
-                    #endif
-                #endif
-                #ifdef SINGLE_FILE
-                if (FILE_OPEN_CHECK(ofile)){
-                #else
-                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                if (FILE_OPEN_CHECK(ofile[board_id][ch_id])){
-                #else
-                if (FILE_OPEN_CHECK(ofile[board_id])){
-                #endif
-                    if (min_board_id > board_id)
-                        min_board_id = board_id;
-                    if (max_board_id < board_id)
-                        max_board_id = board_id;
-                #endif
-                    printf ("Opened new file %s\n", str);
-                }
-                else
-                    {
-                        printf ("ERROR\nERROR: failed to open file %s, quit\n", str);
-                        forced_stop();
-                    };
-            };
+        printf("First event received from: ");
+#ifdef SINGLE_FILE
+#else
+  printf("BOARD_ID: %3.3i ", board_id);
+  #ifdef FILE_PER_CHANNEL // MBO 20200616:
+    printf("CH_ID: %01X ", ch_id);
+  #endif
+#endif
 
-        /* write GEB header out */
-        #ifndef NO_SAVE_BUT_STILL_PROCESS
-            #ifdef WRITEGTFORMAT
+#ifdef SINGLE_FILE
+  if (FILE_OPEN_CHECK(ofile)){
+#else
+  #ifdef FILE_PER_CHANNEL // MBO 20200616:
+    if (FILE_OPEN_CHECK(ofile[board_id][ch_id])){
+  #else
+      if (FILE_OPEN_CHECK(ofile[board_id])){
+  #endif
+        if (min_board_id > board_id)  min_board_id = board_id;
+        if (max_board_id < board_id)  max_board_id = board_id;
+#endif
+        printf("Opened new file %s\n", str);
+      }else{
+        printf("ERROR\nERROR: failed to open file %s, quit\n", str);
+        forced_stop();
+      };
+    };
+
+    /* write GEB header out */
+    #ifndef NO_SAVE_BUT_STILL_PROCESS
+        #ifdef WRITEGTFORMAT
                 #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
                     #ifdef SINGLE_FILE
                         wstat = nonblocking_file_write(ofile, (char *) &Geb, sizeof (GEBDATA));
@@ -1837,6 +1832,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                         return -4;
                     }
                 #endif
+                
                 #ifdef SINGLE_FILE
                     bytes_written_to_file += sizeof (GEBDATA);
                 #else
@@ -1848,7 +1844,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                 #endif
 
                 *writtenBytes += sizeof (GEBDATA);
-            #else // if not defined WRITEGTFORMAT
+        #else // if not defined WRITEGTFORMAT
                 #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
                     #ifdef SINGLE_FILE
                         wstat = nonblocking_file_write(ofile, (char *) &(soe), sizeof (soe));
@@ -1893,47 +1889,46 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                 #endif
 
                 *writtenBytes += sizeof (soe);
-            #endif // WRITEGTFORMAT
+        #endif // WRITEGTFORMAT
 
-            /* write payload out */
-            if (is_digitizer_data)
-            {
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    #ifdef SINGLE_FILE
-                        wstat = nonblocking_file_write(ofile, (char *) (buffer + buffer_position), packet_length_in_bytes);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
-                        #else
-                            wstat = nonblocking_file_write(ofile[board_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
-                        #endif
-                    #endif
-                    if (wstat != packet_length_in_bytes)
-                    {
-                        printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                        forced_stop();
-                        return -4;
-                    }
+        /* write payload out */
+        if (is_digitizer_data){
+            #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+                #ifdef SINGLE_FILE
+                    wstat = nonblocking_file_write(ofile, (char *) (buffer + buffer_position), packet_length_in_bytes);
                 #else
-                    #ifdef SINGLE_FILE
-                        wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile);
+                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                        wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
                     #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id][ch_id]);
-                        #else
-                            wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id]);
-                        #endif
+                        wstat = nonblocking_file_write(ofile[board_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
                     #endif
-                    if (wstat != 1)
-                    {
-                        printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                        forced_stop();
-                        return -4;
-                    }
                 #endif
-            }
-            else if (is_trigger_data)
-            {
+                if (wstat != packet_length_in_bytes)
+                {
+                    printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
+                    forced_stop();
+                    return -4;
+                }
+            #else
+                #ifdef SINGLE_FILE
+                    wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile);
+                #else
+                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                        wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id][ch_id]);
+                    #else
+                        wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id]);
+                    #endif
+                #endif
+                if (wstat != 1)
+                {
+                    printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
+                    forced_stop();
+                    return -4;
+                }
+            #endif
+        }
+        
+        if (is_trigger_data){
                 #ifdef DEBUG_OUTPUT_FILE
                     #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
                     #else
@@ -2043,9 +2038,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
         }
     };
 
-	if (badctr)
-		printf ("%d write failures out of %d packets\n", badctr, badctr + goodctr);
-
+	if (badctr) printf ("%d write failures out of %d packets\n", badctr, badctr + goodctr);
 
 	return retval;
 }
