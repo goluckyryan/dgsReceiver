@@ -74,11 +74,7 @@
 
 //#define  NO_SAVE			// MBO 20200617: Receive only, no saving or processing.
 //#define  NO_SAVE_BUT_STILL_PROCESS   // MBO 20200722: Receive and process the data, but don't save to disk.
-//#define USE_POSIX_FILE_LIB // MBO 20200616: When defined file IO used POSIX non-blocking library calls,
-							// MBO 20200617: When not defined, data write will use the ANSI C file IO (also non-blocking...)
 #define FILE_PER_CHANNEL	// MBO 20200616: When defined, will write one file per channel
-//#define SINGLE_FILE		// MBO 20200624: Overrides FILE_PER_CHANNEL, saves one file per IOC.  auto shut down does not work properly in this mode yet.
-							// MBO 20200626: When neither FILE_PER_CHANNEL nor SINGLE_FILE is defined, will save one file per Digitizer
 #define FOLDER_PER_RUN      // MBO 20220721: When defined, will create a separate subdirectory for each run.
 //#define FILTER_TYPE_F		// MBO 20200626: When defined, will remove all type F headers from output.
 #define DUMP_UNKNOWN_DATA_TO_DISK// MBO 20220801:  Write all unknown data to a diagnostic output file.  (Write trigger data hack enable switch.)
@@ -185,40 +181,28 @@ Provided here for reference only.  This is provided by the user.
 #define MAX_GEB_TYPE           24
 */
 
-#ifndef USE_POSIX_FILE_LIB
-    #define FILE_BUF_SIZE_KB 512
-    #define FILE_BUF_SIZE FILE_BUF_SIZE_KB*1024+8
-    #ifdef SINGLE_FILE
-        static char* file_buffer;
-    #else // not SINGLE_FILE
-        static uint32_t min_board_id;
-        static uint32_t max_board_id;
-        #ifdef FILE_PER_CHANNEL
-            #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                static uint16_t write_inhibit[MAXBOARDID][MAXCHID];
-            #endif	//defined
-            static char* file_buffer[MAXBOARDID][MAXCHID];
-        #else // not FILE_PER_CHANNEL
-            #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                static uint16_t write_inhibit[MAXBOARDID];
-            #endif //defined
-            static char* file_buffer[MAXBOARDID];
-        #endif // not FILE_PER_CHANNEL
-    #endif // not SINGLE_FILE
-#endif // not USE_POSIX_FILE_LIB
+#define FILE_BUF_SIZE_KB 512
+#define FILE_BUF_SIZE FILE_BUF_SIZE_KB*1024+8
+static uint32_t min_board_id;
+static uint32_t max_board_id;
+#ifdef FILE_PER_CHANNEL
+    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+        static uint16_t write_inhibit[MAXBOARDID][MAXCHID];
+    #endif	//defined
+    static char* file_buffer[MAXBOARDID][MAXCHID];
+#else // not FILE_PER_CHANNEL
+    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+        static uint16_t write_inhibit[MAXBOARDID];
+    #endif //defined
+    static char* file_buffer[MAXBOARDID];
+#endif // not FILE_PER_CHANNEL
 
 #ifdef DEBUG_OUTPUT_FILE
-    #ifndef USE_POSIX_FILE_LIB
-        #ifdef SINGLE_FILE
-            static char* diag_file_buffer;
-        #else // not SINGLE_FILE
-            #ifdef FILE_PER_CHANNEL
-                static char* diag_file_buffer[MAXBOARDID][MAXCHID];
-            #else // not FILE_PER_CHANNEL
-                static char* diag_file_buffer[MAXBOARDID];
-            #endif // not FILE_PER_CHANNEL
-        #endif // not SINGLE_FILE
-    #endif // not USE_POSIX_FILE_LIB
+  #ifdef FILE_PER_CHANNEL
+      static char* diag_file_buffer[MAXBOARDID][MAXCHID];
+  #else // not FILE_PER_CHANNEL
+      static char* diag_file_buffer[MAXBOARDID];
+  #endif // not FILE_PER_CHANNEL
 #endif // DEBUG_OUTPUT_FILE
 
 static int64_t max_file_size;
@@ -264,115 +248,36 @@ int8_t datamem[DATA_MEM_SIZE];
 //deprecated for DGS
 int32_t recLenGDig;
 
-
-#ifdef SINGLE_FILE
-	int64_t bytes_written_to_file;
+#ifdef FILE_PER_CHANNEL	// MBO 20200616:
+  int64_t bytes_written_to_file[MAXBOARDID][MAXCHID]; // MBO 20200619:  changed to array
 #else
-	#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-		int64_t bytes_written_to_file[MAXBOARDID][MAXCHID]; // MBO 20200619:  changed to array
-	#else
-		int64_t bytes_written_to_file[MAXBOARDID]; // MBO 20200619:  changed to array
-	#endif
+  int64_t bytes_written_to_file[MAXBOARDID]; // MBO 20200619:  changed to array
 #endif
 
 #ifndef SINGLESHOT
 int64_t totbytesInLargestFile; // MBO 20200619:  new
 #endif // SINGLESHOT
 #ifdef DUMP_UNKNOWN_DATA_TO_DISK
-    #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-        int32_t diag_ofile;
-    #else
-        FILE* diag_unknown_ofile;
-    #endif
+  FILE* diag_unknown_ofile;
 #endif //DUMP_UNKNOWN_DATA_TO_DISK
 
-#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-	#define FILE_OPEN_CHECK(file) (file > 0)
-	#ifdef SINGLE_FILE
-			int32_t ofile;
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			int32_t ofile[MAXBOARDID][MAXCHID];
-		#else
-			int32_t ofile[MAXBOARDID];
-		#endif
-	#endif
+#define FILE_OPEN_CHECK(file) (file != 0)
+#ifdef FILE_PER_CHANNEL	// MBO 20200616:
+  FILE* ofile[MAXBOARDID][MAXCHID];	// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
 #else
-	#define FILE_OPEN_CHECK(file) (file != 0)
-	#ifdef SINGLE_FILE
-			FILE* ofile;
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			FILE* ofile[MAXBOARDID][MAXCHID];	// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
-		#else
-			FILE* ofile[MAXBOARDID];			// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
-		#endif
-	#endif
+  FILE* ofile[MAXBOARDID];			// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
 #endif
 
 #ifdef DEBUG_OUTPUT_FILE
-    #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-        #define FILE_OPEN_CHECK(file) (file > 0)
-        #ifdef SINGLE_FILE
-                int32_t diag_ofile;
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                int32_t diag_ofile[MAXBOARDID][MAXCHID];
-            #else
-                int32_t diag_ofile[MAXBOARDID];
-            #endif
-        #endif
-    #else
-        #define FILE_OPEN_CHECK(file) (file != 0)
-        #ifdef SINGLE_FILE
-                FILE* diag_ofile;
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                FILE* diag_ofile[MAXBOARDID][MAXCHID];	// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
-            #else
-                FILE* diag_ofile[MAXBOARDID];			// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
-            #endif
-        #endif
-    #endif // USE_POSIX_FILE_LIB
+#define FILE_OPEN_CHECK(file) (file != 0)
+#ifdef FILE_PER_CHANNEL	// MBO 20200616:
+  FILE* diag_ofile[MAXBOARDID][MAXCHID];	// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
+#else
+  FILE* diag_ofile[MAXBOARDID];			// MBO 20200617:  Normal mode writes changed from POSIX to  ANSI C file iO
+#endif
 #endif // DEBUG_OUTPUT_FILE
 
 int32_t chunck = 0;
-
-#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-#define FILE_RETRY_LIMIT 50
-#define FILE_WRITE_RETRY_DELAY 10000
-
-int32_t nonblocking_file_write(int32_t fildes, const void *buf, size_t nbyte){
-
-	printf("%s\n", __func__);
-
-	int32_t wstat = 0;
-	int32_t siz = 0;
-	int32_t attempts = 0;
-	while (siz != nbyte){
-		wstat = write (fildes, buf, nbyte);
-		if (wstat == -1){
-			attempts++;
-			printf(".");
-		}else{
-			siz += wstat;
-		}
-
-		if (siz == nbyte){
-			if (attempts > 0 ) printf("\n");
-			break;
-		}else{
-			if (attempts > FILE_RETRY_LIMIT){
-				printf("ERROR: cannot write to disk.\n");
-				return -1;
-			}else{
-				usleep(FILE_WRITE_RETRY_DELAY);
-			}
-		}
-	}
-	return siz;
-}
-#endif
 
 /*----------------------------------------------------------------------*/
 
@@ -709,31 +614,25 @@ int32_t print_info (int64_t totbytes){
 	r1 = (double) (totbytes) / (double) (1024) / (double) (tnow - tstart);
 	printf ("AVG: %7.0f KB/s; ", (float) r1);
 
-	#ifdef SINGLE_FILE
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (i = 0; i < MAXBOARDID; i++)
-				for (j = 0; j < MAXCHID; j++)
-					if (FILE_OPEN_CHECK(ofile[i][j])) printf ("%i-%i ",i,j);
-		#else
-			for (i = 0; i < MAXBOARDID; i++)
-				if (FILE_OPEN_CHECK(ofile[i])) printf ("%i ",i);
-		#endif
-	#endif
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (i = 0; i < MAXBOARDID; i++)
+      for (j = 0; j < MAXCHID; j++)
+        if (FILE_OPEN_CHECK(ofile[i][j])) printf ("%i-%i ",i,j);
+  #else
+    for (i = 0; i < MAXBOARDID; i++)
+      if (FILE_OPEN_CHECK(ofile[i])) printf ("%i ",i);
+  #endif
 
-    #ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (i = 0; i < MAXBOARDID; i++)
-                    for (j = 0; j < MAXCHID; j++)
-                        if (FILE_OPEN_CHECK(diag_ofile[i][j])) printf ("%i-%i ",i,j);
-            #else
-                for (i = 0; i < MAXBOARDID; i++)
-                    if (FILE_OPEN_CHECK(diag_ofile[i])) printf ("%i ",i);
-            #endif
-        #endif
-    #endif // DEBUG_OUTPUT_FILE
+  #ifdef DEBUG_OUTPUT_FILE
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+        for (i = 0; i < MAXBOARDID; i++)
+            for (j = 0; j < MAXCHID; j++)
+                if (FILE_OPEN_CHECK(diag_ofile[i][j])) printf ("%i-%i ",i,j);
+    #else
+        for (i = 0; i < MAXBOARDID; i++)
+            if (FILE_OPEN_CHECK(diag_ofile[i])) printf ("%i ",i);
+    #endif
+  #endif // DEBUG_OUTPUT_FILE
 
 	/* prime for next */
 
@@ -767,74 +666,54 @@ void set_readonly(){
 	int32_t data_fd;
 	char str[550];
 
-	#ifdef SINGLE_FILE
-	#else
-		int32_t i;
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			int32_t j;
-		#endif
-	#endif
+  int32_t i;
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    int32_t j;
+  #endif
 
 	/* specify readonly for everyone */
-
-	#ifdef SINGLE_FILE
-		sprintf (str, "%s", fn);
-		data_fd = open (str, O_RDWR);
-		close (data_fd);
-		ofile = 0;
-		printf ("%s is now readonly\n", str);
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (i = 0; i < MAXBOARDID; i++)
-				for (j = 0; j < MAXCHID; j++)
-					if (FILE_OPEN_CHECK(ofile[i][j])){
-                        sprintf (str, "%s_%4.4i_%1.1i", fn, i, j);
-                        data_fd = open (str, O_RDWR);
-                        close (data_fd);
-                        ofile[i][j] = 0;
-                        printf ("%s is now readonly\n", str);
-                    };
-		#else
-			for (i = 0; i < MAXBOARDID; i++)
-				if (FILE_OPEN_CHECK(ofile[i])){
-                    sprintf (str, "%s_%4.4i", fn, i);
-                    data_fd = open (str, O_RDWR);
-                    close (data_fd);
-                    ofile[i] = 0;
-                    printf ("%s is now readonly\n", str);
-                };
-		#endif // FILE_PER_CHANNEL
-	#endif // SINGLE_FILE
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (i = 0; i < MAXBOARDID; i++)
+      for (j = 0; j < MAXCHID; j++)
+        if (FILE_OPEN_CHECK(ofile[i][j])){
+                      sprintf (str, "%s_%4.4i_%1.1i", fn, i, j);
+                      data_fd = open (str, O_RDWR);
+                      close (data_fd);
+                      ofile[i][j] = 0;
+                      printf ("%s is now readonly\n", str);
+                  };
+  #else
+    for (i = 0; i < MAXBOARDID; i++)
+      if (FILE_OPEN_CHECK(ofile[i])){
+                  sprintf (str, "%s_%4.4i", fn, i);
+                  data_fd = open (str, O_RDWR);
+                  close (data_fd);
+                  ofile[i] = 0;
+                  printf ("%s is now readonly\n", str);
+              };
+  #endif // FILE_PER_CHANNEL
 
 	#ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-            sprintf (str, "diag_%s", fn);
-            data_fd = open (str, O_RDWR);
-            close (data_fd);
-            diag_ofile = 0;
-            printf ("diag_%s is now readonly\n", str);
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (i = 0; i < MAXBOARDID; i++)
-                    for (j = 0; j < MAXCHID; j++)
-                        if (FILE_OPEN_CHECK(diag_ofile[i][j])){
-                            sprintf (str, "diag_%s_%4.4i_%1.1i", fn, i, j);
-                            data_fd = open (str, O_RDWR);
-                            close (data_fd);
-                            diag_ofile[i][j] = 0;
-                            printf ("diag_%s is now readonly\n", str);
-                        };
-            #else
-                for (i = 0; i < MAXBOARDID; i++)
-                    if (FILE_OPEN_CHECK(diag_ofile[i])){
-                       sprintf (str, "diag_%s_%4.4i", fn, i);
-                        data_fd = open (str, O_RDWR);
-                        close (data_fd);
-                        diag_ofile[i] = 0;
-                        printf ("diag_%s is now readonly\n", str);
-                    };
-            #endif // FILE_PER_CHANNEL
-        #endif // SINGLE_FILE
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+        for (i = 0; i < MAXBOARDID; i++)
+            for (j = 0; j < MAXCHID; j++)
+                if (FILE_OPEN_CHECK(diag_ofile[i][j])){
+                    sprintf (str, "diag_%s_%4.4i_%1.1i", fn, i, j);
+                    data_fd = open (str, O_RDWR);
+                    close (data_fd);
+                    diag_ofile[i][j] = 0;
+                    printf ("diag_%s is now readonly\n", str);
+                };
+    #else
+        for (i = 0; i < MAXBOARDID; i++)
+            if (FILE_OPEN_CHECK(diag_ofile[i])){
+                sprintf (str, "diag_%s_%4.4i", fn, i);
+                data_fd = open (str, O_RDWR);
+                close (data_fd);
+                diag_ofile[i] = 0;
+                printf ("diag_%s is now readonly\n", str);
+            };
+    #endif // FILE_PER_CHANNEL
     #endif // DEBUG_OUTPUT_FILE
 	/* done */
 
@@ -858,65 +737,49 @@ void set_board_readonly (int32_t board_num){
 
 	/* specify readonly for everyone */
 
-	#ifdef SINGLE_FILE
-		sprintf (str, "%s", fn);
-		data_fd = open (str, O_RDWR);
-		close (data_fd);
-		ofile = 0;
-		printf ("%s is now readonly\n", str);
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (j = 0; j < MAXCHID; j++)
-				if (FILE_OPEN_CHECK(ofile[board_num][j]))
-					{
-						sprintf (str, "%s_%4.4i_%1.1i", fn, board_num, j);
-						data_fd = open (str, O_RDWR);
-						close (data_fd);
-						ofile[board_num][j] = 0;
-						printf ("%s is now readonly\n", str);
-					};
-		#else
-			if (FILE_OPEN_CHECK(ofile[board_num]))
-				{
-					sprintf (str, "%s_%4.4i", fn, board_num);
-					data_fd = open (str, O_RDWR);
-					close (data_fd);
-					ofile[board_num] = 0;
-					printf ("%s is now readonly\n", str);
-				};
-		#endif
-	#endif
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (j = 0; j < MAXCHID; j++)
+      if (FILE_OPEN_CHECK(ofile[board_num][j]))
+        {
+          sprintf (str, "%s_%4.4i_%1.1i", fn, board_num, j);
+          data_fd = open (str, O_RDWR);
+          close (data_fd);
+          ofile[board_num][j] = 0;
+          printf ("%s is now readonly\n", str);
+        };
+  #else
+    if (FILE_OPEN_CHECK(ofile[board_num]))
+      {
+        sprintf (str, "%s_%4.4i", fn, board_num);
+        data_fd = open (str, O_RDWR);
+        close (data_fd);
+        ofile[board_num] = 0;
+        printf ("%s is now readonly\n", str);
+      };
+  #endif
 
 	#ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-            sprintf (str, "diag_%s", fn);
-            data_fd = open (str, O_RDWR);
-            close (data_fd);
-            diag_ofile = 0;
-            printf ("diag_%s is now readonly\n", str);
-        #else // not SINGLE_FILE
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (j = 0; j < MAXCHID; j++)
-                    if (FILE_OPEN_CHECK(diag_ofile[board_num][j]))
-                        {
-                            sprintf (str, "diag_%s_%4.4i_%1.1i", fn, board_num, j);
-                            data_fd = open (str, O_RDWR);
-                            close (data_fd);
-                            diag_ofile[board_num][j] = 0;
-                            printf ("%s is now readonly\n", str);
-                        };
-            #else // not FILE_PER_CHANNEL
-                if (FILE_OPEN_CHECK(diag_ofile[board_num]))
-                    {
-                        sprintf (str, "%s_%4.4i", fn, board_num);
-                        data_fd = open (str, O_RDWR);
-                        close (data_fd);
-                        diag_ofile[board_num] = 0;
-                        printf ("%s is now readonly\n", str);
-                    };
-            #endif // not FILE_PER_CHANNE
-        #endif // not SINGLE_FILE
-    #endif // DEBUG_OUTPUT_FILE
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+        for (j = 0; j < MAXCHID; j++)
+            if (FILE_OPEN_CHECK(diag_ofile[board_num][j]))
+                {
+                    sprintf (str, "diag_%s_%4.4i_%1.1i", fn, board_num, j);
+                    data_fd = open (str, O_RDWR);
+                    close (data_fd);
+                    diag_ofile[board_num][j] = 0;
+                    printf ("%s is now readonly\n", str);
+                };
+    #else // not FILE_PER_CHANNEL
+        if (FILE_OPEN_CHECK(diag_ofile[board_num]))
+            {
+                sprintf (str, "%s_%4.4i", fn, board_num);
+                data_fd = open (str, O_RDWR);
+                close (data_fd);
+                diag_ofile[board_num] = 0;
+                printf ("%s is now readonly\n", str);
+            };
+    #endif // not FILE_PER_CHANNE
+  #endif // DEBUG_OUTPUT_FILE
 	/* done */
 
 	return;
@@ -942,103 +805,74 @@ void close_all (void){
 	printf ("%.24s\n", ctime (&ticks));
 	fflush (stdout);
 
-	#ifdef SINGLE_FILE
-		if (FILE_OPEN_CHECK(ofile)){
-			#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-				close (ofile);
-			#else
-				fclose (ofile
-				free(file_buffer);
-			#endif
-	//		ofile = 0;
-			bytes_written_to_file = 0;
-			printf ("close board file\n");
-		}
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (i = 0; i < MAXBOARDID; i++)
-				for (j = 0; j < MAXCHID; j++)
-					if (FILE_OPEN_CHECK(ofile[i][j]))
-						{
-							#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-								close (ofile[i][j]);
-							#else
-								fclose (ofile[i][j]);
-								free(file_buffer[i][j]);
-							#endif
-	//						ofile[j][j] = 0;
-							bytes_written_to_file[i][j] = 0;
-							printf ("close board file %i-%i\n", i, j);
-						};
-		#else
-			for (i = 0; i < MAXBOARDID; i++)
-				if (FILE_OPEN_CHECK(ofile[i]))
-					{
-						#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-							close (ofile[i]);
-						#else
-							fclose (ofile[i]);
-							free(file_buffer[i]);
-						#endif
-	//					ofile[i] = 0;
-						bytes_written_to_file[i] = 0;
-						printf ("close board file %i\n", i);
-					};
-		#endif
-	#endif
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (i = 0; i < MAXBOARDID; i++)
+      for (j = 0; j < MAXCHID; j++)
+        if (FILE_OPEN_CHECK(ofile[i][j]))
+          {
+            #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+              close (ofile[i][j]);
+            #else
+              fclose (ofile[i][j]);
+              free(file_buffer[i][j]);
+            #endif
+//						ofile[j][j] = 0;
+            bytes_written_to_file[i][j] = 0;
+            printf ("close board file %i-%i\n", i, j);
+          };
+  #else
+    for (i = 0; i < MAXBOARDID; i++)
+      if (FILE_OPEN_CHECK(ofile[i]))
+        {
+          #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+            close (ofile[i]);
+          #else
+            fclose (ofile[i]);
+            free(file_buffer[i]);
+          #endif
+//					ofile[i] = 0;
+          bytes_written_to_file[i] = 0;
+          printf ("close board file %i\n", i);
+        };
+  #endif
 
 	#ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-            if (FILE_OPEN_CHECK(diag_ofile))
-            {
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    close (diag_ofile);
-                #else
-                    fclose (diag_ofile
-                    free(diag_file_buffer);
-                #endif
-        //		diag_ofile = 0;
-                bytes_written_to_file = 0;
-                printf ("close board file\n");
-            }
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (i = 0; i < MAXBOARDID; i++)
-                    for (j = 0; j < MAXCHID; j++)
-                        if (FILE_OPEN_CHECK(diag_ofile[i][j]))
-                            {
-                                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                                    close (diag_ofile[i][j]);
-                                #else
-                                    fclose (diag_ofile[i][j]);
-                                    free(diag_file_buffer[i][j]);
-                                #endif
-        //						diag_ofile[j][j] = 0;
-                                bytes_written_to_file[i][j] = 0;
-                                printf ("close board file %i-%i\n", i, j);
-                            };
-            #else
-                for (i = 0; i < MAXBOARDID; i++)
-                    if (FILE_OPEN_CHECK(diag_ofile[i]))
-                        {
-                            #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                                close (diag_ofile[i]);
-                            #else
-                                fclose (diag_ofile[i]);
-                                free(diag_file_buffer[i]);
-                            #endif
-        //					diag_ofile[i] = 0;
-                            bytes_written_to_file[i] = 0;
-                            printf ("close board file %i\n", i);
-                        };
-            #endif
-        #endif
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+        for (i = 0; i < MAXBOARDID; i++)
+            for (j = 0; j < MAXCHID; j++)
+                if (FILE_OPEN_CHECK(diag_ofile[i][j]))
+                    {
+                        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+                            close (diag_ofile[i][j]);
+                        #else
+                            fclose (diag_ofile[i][j]);
+                            free(diag_file_buffer[i][j]);
+                        #endif
+//						diag_ofile[j][j] = 0;
+                        bytes_written_to_file[i][j] = 0;
+                        printf ("close board file %i-%i\n", i, j);
+                    };
+    #else
+        for (i = 0; i < MAXBOARDID; i++)
+            if (FILE_OPEN_CHECK(diag_ofile[i]))
+                {
+                    #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+                        close (diag_ofile[i]);
+                    #else
+                        fclose (diag_ofile[i]);
+                        free(diag_file_buffer[i]);
+                    #endif
+//					diag_ofile[i] = 0;
+                    bytes_written_to_file[i] = 0;
+                    printf ("close board file %i\n", i);
+                };
+    #endif
 	#endif // DEBUG_OUTPUT_FILE
 
 
-    #ifndef SINGLESHOT
-        totbytesInLargestFile = 0;
-    #endif // SINGLESHOT
+  #ifndef SINGLESHOT
+      totbytesInLargestFile = 0;
+  #endif // SINGLESHOT
 	set_readonly ();
 	return;
 }
@@ -1091,46 +925,33 @@ void exit_if_all_files_closed (void){
 
 	printf("#### %s\n", __func__);
 
-	#ifdef SINGLE_FILE
-	#else
-		int32_t i;
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			int32_t j;
-		#endif
-	#endif
+  int32_t i;
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    int32_t j;
+  #endif
 
-	#ifdef SINGLE_FILE
-		if (FILE_OPEN_CHECK(ofile))
-			return;
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (i = 0; i < MAXBOARDID; i++)
-				for (j = 0; j < MAXCHID; j++)
-					if (FILE_OPEN_CHECK(ofile[i][j]))
-						return;
-		#else
-			for (i = 0; i < MAXBOARDID; i++)
-				if (FILE_OPEN_CHECK(ofile[i]))
-						return;
-		#endif
-	#endif
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (i = 0; i < MAXBOARDID; i++)
+      for (j = 0; j < MAXCHID; j++)
+        if (FILE_OPEN_CHECK(ofile[i][j]))
+          return;
+  #else
+    for (i = 0; i < MAXBOARDID; i++)
+      if (FILE_OPEN_CHECK(ofile[i]))
+          return;
+  #endif
 
 	#ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-            if (FILE_OPEN_CHECK(diag_ofile))
-                return;
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (i = 0; i < MAXBOARDID; i++)
-                    for (j = 0; j < MAXCHID; j++)
-                        if (FILE_OPEN_CHECK(diag_ofile[i][j]))
-                            return;
-            #else
-                for (i = 0; i < MAXBOARDID; i++)
-                    if (FILE_OPEN_CHECK(diag_ofile[i]))
-                            return;
-            #endif
-        #endif
+    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+        for (i = 0; i < MAXBOARDID; i++)
+            for (j = 0; j < MAXCHID; j++)
+                if (FILE_OPEN_CHECK(diag_ofile[i][j]))
+                    return;
+    #else
+        for (i = 0; i < MAXBOARDID; i++)
+            if (FILE_OPEN_CHECK(diag_ofile[i]))
+                    return;
+    #endif
 	#endif // DEBUG_OUTPUT_FILE
 
 	stop_receiver ();
@@ -1151,91 +972,63 @@ void close_board (int32_t board_num){
 	printf ("%.24s\n", ctime (&ticks));
 	fflush (stdout);
 
-	#ifdef SINGLE_FILE
-		if (FILE_OPEN_CHECK(ofile))
-		{
-			#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-				close (ofile);
-			#else
-				fclose (ofile);
-				free(file_buffer);
-			#endif
-	//		ofile = 0;
-			bytes_written_to_file = 0;
-			printf ("close board file\n");
-		}
-	#else
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (j = 0; j < MAXCHID; j++)
-				if (FILE_OPEN_CHECK(ofile[board_num][j]))
-					{
-						#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-							close (ofile[board_num][j]);
-						#else
-							fclose (ofile[board_num][j]);
-							free(file_buffer[board_num][j]);
-						#endif
-	//					ofile[board_num][j] = 0;
-						bytes_written_to_file[board_num][j] = 0;
-						printf ("close board file %i-%i\n", board_num, j);
-					};
-		#else
-			if (FILE_OPEN_CHECK(ofile[board_num]))
-				{
-					#ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-						close (ofile[board_num]);
-					#else
-						fclose (ofile[board_num]);
-						free(file_buffer[board_num]);
-					#endif
-	//				ofile[board_num] = 0;
-					bytes_written_to_file[board_num] = 0;
-					printf ("close board file %i\n", board_num);
-				};
-		#endif
-	#endif
+
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (j = 0; j < MAXCHID; j++)
+      if (FILE_OPEN_CHECK(ofile[board_num][j]))
+        {
+          #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+            close (ofile[board_num][j]);
+          #else
+            fclose (ofile[board_num][j]);
+            free(file_buffer[board_num][j]);
+          #endif
+//					ofile[board_num][j] = 0;
+          bytes_written_to_file[board_num][j] = 0;
+          printf ("close board file %i-%i\n", board_num, j);
+        };
+  #else
+    if (FILE_OPEN_CHECK(ofile[board_num]))
+      {
+        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+          close (ofile[board_num]);
+        #else
+          fclose (ofile[board_num]);
+          free(file_buffer[board_num]);
+        #endif
+//				ofile[board_num] = 0;
+        bytes_written_to_file[board_num] = 0;
+        printf ("close board file %i\n", board_num);
+      };
+  #endif
 
     #ifdef DEBUG_OUTPUT_FILE
-        #ifdef SINGLE_FILE
-            if (FILE_OPEN_CHECK(diag_ofile))
-            {
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    close (diag_ofile);
-                #else
-                    fclose (diag_ofile);
-                    free(diag_file_buffer);
-                #endif
-        //		diag_ofile = 0;
-                printf ("close diag board file\n");
-            }
-        #else
-            #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                for (j = 0; j < MAXCHID; j++)
-                    if (FILE_OPEN_CHECK(diag_ofile[board_num][j]))
-                        {
-                            #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                                close (diag_ofile[board_num][j]);
-                            #else
-                                fclose (diag_ofile[board_num][j]);
-                                free(diag_file_buffer[board_num][j]);
-                            #endif
-        //					diag_ofile[board_num][j] = 0;
-                            printf ("close diag board file %i-%i\n", board_num, j);
-                        };
-            #else
-                if (FILE_OPEN_CHECK(diag_ofile[board_num]))
-                    {
-                        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                            close (diag_ofile[board_num]);
-                        #else
-                            fclose (diag_ofile[board_num]);
-                            free(diag_file_buffer[board_num]);
-                        #endif
-        //				ofile[board_num] = 0;
-                        printf ("close diag board file %i\n", board_num);
-                    };
-            #endif
-        #endif
+      #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+          for (j = 0; j < MAXCHID; j++)
+              if (FILE_OPEN_CHECK(diag_ofile[board_num][j]))
+                  {
+                      #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+                          close (diag_ofile[board_num][j]);
+                      #else
+                          fclose (diag_ofile[board_num][j]);
+                          free(diag_file_buffer[board_num][j]);
+                      #endif
+  //					diag_ofile[board_num][j] = 0;
+                      printf ("close diag board file %i-%i\n", board_num, j);
+                  };
+      #else
+          if (FILE_OPEN_CHECK(diag_ofile[board_num]))
+              {
+                  #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
+                      close (diag_ofile[board_num]);
+                  #else
+                      fclose (diag_ofile[board_num]);
+                      free(diag_file_buffer[board_num]);
+                  #endif
+  //				ofile[board_num] = 0;
+                  printf ("close diag board file %i\n", board_num);
+              };
+      #endif
 
     #endif // DEBUG_OUTPUT_FILE
 
@@ -1270,35 +1063,18 @@ int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write) {
         sprintf (str, "%s_DIAG_DATA", fn);
 
         /* open file */
-        #ifdef USE_POSIX_FILE_LIB
-            diag_unknown_ofile = open (str, O_WRONLY | O_CREAT | O_APPEND | O_NONBLOCK, 0644);
-            if (!FILE_OPEN_CHECK(diag_unknown_ofile))
-            {
-                printf ("Can't open or create diagnostic output file.");
-                return -2;
-            }
-            wstat = nonblocking_file_write(diag_unknown_ofile, buffer, size2write);
-            if (wstat != size2write)
-            {
-                printf("Aborting write of %d bytes due to unhandled write error.", size2write);
-                return -2;
-            }
-            close(diag_unknown_ofile);
-        #else
-            diag_unknown_ofile = fopen (str, "ab");
-            if (!FILE_OPEN_CHECK(diag_unknown_ofile))
-            {
-                printf ("Can't open or create diagnostic output file.");
-                return -2;
-            }
-            wstat = fwrite (buffer, size2write, 1, diag_unknown_ofile);
-            if (wstat != size2write)
-            {
-                printf("Aborting write of %d bytes due to unhandled write error.", size2write);
-                return -2;
-            }
-            fclose(diag_unknown_ofile);
-        #endif
+
+          diag_unknown_ofile = fopen (str, "ab");
+          if (!FILE_OPEN_CHECK(diag_unknown_ofile)){
+              printf ("Can't open or create diagnostic output file.");
+              return -2;
+          }
+          wstat = fwrite (buffer, size2write, 1, diag_unknown_ofile);
+          if (wstat != size2write){
+              printf("Aborting write of %d bytes due to unhandled write error.", size2write);
+              return -2;
+          }
+          fclose(diag_unknown_ofile);
         return -2;
     #endif
 }
@@ -1599,20 +1375,6 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
     }else{
   #endif
 
-  #ifdef SINGLE_FILE
-    #ifdef SINGLESHOT
-      #ifdef WRITEGTFORMAT
-        if (bytes_written_to_file + packet_length_in_bytes + sizeof(GEBDATA) > max_file_size)
-      #else
-        if (bytes_written_to_file + packet_length_in_bytes + sizeof(soe) > max_file_size)
-      #endif // WRITEGTFORMAT
-        {
-          return packet_length_in_bytes + sizeof(soe);
-        }
-    #endif // SINGLESHOT
-    
-    if (!FILE_OPEN_CHECK(ofile))
-  #else
     #ifdef FILE_PER_CHANNEL	// MBO 20200616:
       #ifdef SINGLESHOT
         #ifdef WRITEGTFORMAT
@@ -1641,44 +1403,32 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
       #endif // SINGLESHOT
         if (!FILE_OPEN_CHECK(ofile[board_id]))
     #endif
-  #endif // else of ifdef SINGLE_FILE
 
       {
         if (is_trigger_data){
           /* filename */
-          #ifdef SINGLE_FILE
-                  sprintf (str, "trig_%s", fn);
-          #else
               #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                   sprintf (str, "trig_%s_%4.4i_%01X", fn, board_id, ch_id);
               #else
                   sprintf (str, "trig_%s_%4.4i", fn, board_id);
               #endif
-          #endif
 
           #ifdef DEBUG_OUTPUT_FILE
-              #ifdef SINGLE_FILE
-                  sprintf (diag_str, "diag_trig_%s", fn);
-              #else
+
                   #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                       sprintf (diag_str, "diag_trig_%s_%4.4i_%01X", fn, board_id, ch_id);
                   #else
                       sprintf (diag_str, "diag_trig_%s_%4.4i", fn, board_id);
                   #endif
-              #endif
           #endif // DEBUG_OUTPUT_FILE
 
         }else{
             /* filename */
-            #ifdef SINGLE_FILE
-                    sprintf (str, "%s", fn);
-            #else
                 #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                     sprintf (str, "%s_%4.4i_%01X", fn, board_id, ch_id);
                 #else
                     sprintf (str, "%s_%4.4i", fn, board_id);
                 #endif
-            #endif
         }
 
         /* make sure it does not exist already */
@@ -1698,89 +1448,44 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
         };
 
         /* open file */
-        #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-            #ifdef SINGLE_FILE
-                ofile = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-            #else
-                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                    ofile[board_id][ch_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                #else
-                    // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                    ofile[board_id] = open (str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                #endif
-            #endif
-        #else
-            #ifdef SINGLE_FILE
-                ofile = fopen (str, "wb");
-                file_buffer = (char*)malloc(FILE_BUF_SIZE);
-                setvbuf(ofile, file_buffer, _IOFBF, FILE_BUF_SIZE);
-            #else
-                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                    ofile[board_id][ch_id] = fopen (str, "wb");
-                    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                        write_inhibit[board_id][ch_id] = 0;
-                    #endif
-                    file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
-                    setvbuf(ofile[board_id][ch_id], file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
-                #else
-                    ofile[board_id] = fopen (str, "wb");
-                    #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-                        write_inhibit[board_id] = 0;
-                    #endif
-                    file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
-                    setvbuf(ofile[board_id], file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
-                #endif
-            #endif
-        #endif
+          #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+              ofile[board_id][ch_id] = fopen (str, "wb");
+              #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+                  write_inhibit[board_id][ch_id] = 0;
+              #endif
+              file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
+              setvbuf(ofile[board_id][ch_id], file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
+          #else
+              ofile[board_id] = fopen (str, "wb");
+              #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+                  write_inhibit[board_id] = 0;
+              #endif
+              file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
+              setvbuf(ofile[board_id], file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
+          #endif
                 
         
         if (is_trigger_data) {
             #ifdef DEBUG_OUTPUT_FILE
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    #ifdef SINGLE_FILE
-                        diag_ofile = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                            diag_ofile[board_id][ch_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                        #else
-                            // MBO 20200616: Let's try going faster on writes with O_NONBLOCK
-                            diag_ofile[board_id] = open (diag_str, O_WRONLY | O_CREAT | O_NONBLOCK, 0644);
-                        #endif
-                    #endif
+                #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                    diag_ofile[board_id][ch_id] = fopen (diag_str, "wb");
+                    diag_file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
+                    setvbuf(diag_ofile[board_id][ch_id], diag_file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
                 #else
-                    #ifdef SINGLE_FILE
-                        diag_ofile = fopen (diag_str, "wb");
-                        diag_file_buffer = (char*)malloc(FILE_BUF_SIZE);
-                        setvbuf(diag_ofile, diag_file_buffer, _IOFBF, FILE_BUF_SIZE);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            diag_ofile[board_id][ch_id] = fopen (diag_str, "wb");
-                            diag_file_buffer[board_id][ch_id] = (char*)malloc(FILE_BUF_SIZE);
-                            setvbuf(diag_ofile[board_id][ch_id], diag_file_buffer[board_id][ch_id], _IOFBF, FILE_BUF_SIZE);
-                        #else
-                            diag_ofile[board_id] = fopen (diag_str, "wb");
-                            diag_file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
-                            setvbuf(diag_ofile[board_id], diag_file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
-                        #endif
-                    #endif
+                    diag_ofile[board_id] = fopen (diag_str, "wb");
+                    diag_file_buffer[board_id] = (char*)malloc(FILE_BUF_SIZE);
+                    setvbuf(diag_ofile[board_id], diag_file_buffer[board_id], _IOFBF, FILE_BUF_SIZE);
                 #endif
             #endif // DEBUG_OUTPUT_FILE
         }
 
         printf("First event received from: ");
-#ifdef SINGLE_FILE
-#else
+
   printf("BOARD_ID: %3.3i ", board_id);
   #ifdef FILE_PER_CHANNEL // MBO 20200616:
     printf("CH_ID: %01X ", ch_id);
   #endif
-#endif
 
-#ifdef SINGLE_FILE
-  if (FILE_OPEN_CHECK(ofile)){
-#else
   #ifdef FILE_PER_CHANNEL // MBO 20200616:
     if (FILE_OPEN_CHECK(ofile[board_id][ch_id])){
   #else
@@ -1788,7 +1493,6 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
   #endif
         if (min_board_id > board_id)  min_board_id = board_id;
         if (max_board_id < board_id)  max_board_id = board_id;
-#endif
         printf("Opened new file %s\n", str);
       }else{
         printf("ERROR\nERROR: failed to open file %s, quit\n", str);
@@ -1799,31 +1503,10 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
     /* write GEB header out */
     #ifndef NO_SAVE_BUT_STILL_PROCESS
         #ifdef WRITEGTFORMAT
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    #ifdef SINGLE_FILE
-                        wstat = nonblocking_file_write(ofile, (char *) &Geb, sizeof (GEBDATA));
+                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                        wstat = fwrite ((char *) &Geb, sizeof (GEBDATA), 1, ofile[board_id][ch_id]);
                     #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *) &Geb, sizeof (GEBDATA));
-                        #else
-                            wstat = nonblocking_file_write(ofile[board_id], (char *) &Geb, sizeof (GEBDATA));
-                        #endif
-                    #endif
-                    if (wstat != sizeof (GEBDATA))
-                    {
-                        printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                        forced_stop();
-                        return -4;
-                    }
-                #else
-                    #ifdef SINGLE_FILE
-                        wstat = fwrite ((char *) &Geb, sizeof (GEBDATA), 1, ofile);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = fwrite ((char *) &Geb, sizeof (GEBDATA), 1, ofile[board_id][ch_id]);
-                        #else
-                            wstat = fwrite ((char *) &Geb, sizeof (GEBDATA), 1, ofile[board_id]);
-                        #endif
+                        wstat = fwrite ((char *) &Geb, sizeof (GEBDATA), 1, ofile[board_id]);
                     #endif
                     if (wstat != 1)
                     {
@@ -1831,45 +1514,19 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                         forced_stop();
                         return -4;
                     }
-                #endif
-                
-                #ifdef SINGLE_FILE
-                    bytes_written_to_file += sizeof (GEBDATA);
-                #else
                     #ifdef FILE_PER_CHANNEL	// MBO 20200620:
                         bytes_written_to_file[board_id][ch_id] += sizeof (GEBDATA);
                     #else
                         bytes_written_to_file[board_id] += sizeof (GEBDATA);
                     #endif
-                #endif
 
                 *writtenBytes += sizeof (GEBDATA);
         #else // if not defined WRITEGTFORMAT
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    #ifdef SINGLE_FILE
-                        wstat = nonblocking_file_write(ofile, (char *) &(soe), sizeof (soe));
+       
+                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                        wstat = fwrite ((char *) &(soe), sizeof (soe), 1, ofile[board_id][ch_id]);
                     #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *) &(soe), sizeof (soe));
-                        #else
-                            wstat = nonblocking_file_write(ofile[board_id], (char *) &(soe), sizeof (soe));
-                        #endif
-                    #endif
-                    if (wstat != sizeof (soe))
-                    {
-                        printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                        forced_stop();
-                        return -4;
-                    }
-                #else
-                    #ifdef SINGLE_FILE
-                        wstat = fwrite ((char *) &(soe), sizeof (soe), 1, ofile);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = fwrite ((char *) &(soe), sizeof (soe), 1, ofile[board_id][ch_id]);
-                        #else
-                            wstat = fwrite ((char *) &(soe), sizeof (soe), 1, ofile[board_id]);
-                        #endif
+                        wstat = fwrite ((char *) &(soe), sizeof (soe), 1, ofile[board_id]);
                     #endif
                     if (wstat != 1)
                     {
@@ -1877,63 +1534,35 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                         forced_stop();
                         return -4;
                     }
-                #endif
-                #ifdef SINGLE_FILE
-                    bytes_written_to_file += sizeof (soe);
-                #else
+
                     #ifdef FILE_PER_CHANNEL	// MBO 20200620:
                         bytes_written_to_file[board_id][ch_id] += sizeof (soe);
                     #else
                         bytes_written_to_file[board_id] += sizeof (soe);
                     #endif
-                #endif
 
                 *writtenBytes += sizeof (soe);
         #endif // WRITEGTFORMAT
 
         /* write payload out */
         if (is_digitizer_data){
-            #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                #ifdef SINGLE_FILE
-                    wstat = nonblocking_file_write(ofile, (char *) (buffer + buffer_position), packet_length_in_bytes);
-                #else
-                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                        wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
-                    #else
-                        wstat = nonblocking_file_write(ofile[board_id], (char *) (buffer + buffer_position), packet_length_in_bytes);
-                    #endif
-                #endif
-                if (wstat != packet_length_in_bytes)
-                {
-                    printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                    forced_stop();
-                    return -4;
-                }
-            #else
-                #ifdef SINGLE_FILE
-                    wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile);
-                #else
                     #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                         wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id][ch_id]);
                     #else
                         wstat = fwrite ((char *) (buffer + buffer_position), packet_length_in_bytes, 1, ofile[board_id]);
                     #endif
-                #endif
                 if (wstat != 1)
                 {
                     printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
                     forced_stop();
                     return -4;
                 }
-            #endif
         }
         
         if (is_trigger_data){
                 #ifdef DEBUG_OUTPUT_FILE
                     #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
                     #else
-                        #ifdef SINGLE_FILE
-                        #else
                             #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                                 fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[0]);
                                 fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[1]);
@@ -1963,65 +1592,38 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                             #else
                                 fprintf(diag_ofile[board_id], "%.08X\n", (char *)(&(reformatted_hdr[0])));
                             #endif
-                        #endif
                     #endif
                 #endif // DEBUG_OUTPUT_FILE
-                #ifdef USE_POSIX_FILE_LIB	// MBO 20200616:
-                    #ifdef SINGLE_FILE
-                        wstat = nonblocking_file_write(ofile, (char *)(&(reformatted_hdr[1])), packet_length_in_bytes);
-                    #else
-                        #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            wstat = nonblocking_file_write(ofile[board_id][ch_id], (char *)(&(reformatted_hdr[1])), packet_length_in_bytes);
-                        #else
-                            wstat = nonblocking_file_write(ofile[board_id], (char *)(&(reformatted_hdr[1])), packet_length_in_bytes);
-                        #endif
-                    #endif
-                    if (wstat != packet_length_in_bytes)
-                    {
-                        printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
-                        forced_stop();
-                        return -4;
-                    }
-                #else
-                    #ifdef SINGLE_FILE
-                        wstat = fwrite ((char *)(&(reformatted_hdr[1])), packet_length_in_bytes, 1, ofile);
-                    #else
+
                         #ifdef FILE_PER_CHANNEL	// MBO 20200616:
                             wstat = fwrite ((char *)(&(reformatted_hdr[1])), packet_length_in_bytes, 1, ofile[board_id][ch_id]);
                         #else
                             wstat = fwrite ((char *)(&(reformatted_hdr[1])), packet_length_in_bytes, 1, ofile[board_id]);
                         #endif
-                    #endif
                     if (wstat != 1)
                     {
                         printf("FILE WRITE ERROR: BOARD: %i CH: %0X", board_id, ch_id);
                         forced_stop();
                         return -4;
                     }
-                #endif
             }
         #endif // NO_SAVE_BUT_STILL_PROCESS
-        #ifdef SINGLE_FILE
-            bytes_written_to_file += packet_length_in_bytes;
-        #else
             #ifdef FILE_PER_CHANNEL	// MBO 20200620:
                 bytes_written_to_file[board_id][ch_id] += packet_length_in_bytes;
             #else
                 bytes_written_to_file[board_id] += packet_length_in_bytes;
             #endif
-        #endif
         *writtenBytes += packet_length_in_bytes;
+        
         #ifdef FILTER_TYPE_F
         }	// end if header_type != 0xF
         #else
         }   // end else
         #endif
-        if (is_trigger_data)
-        {
+        
+        if (is_trigger_data){
             buffer_position += TRIG_MIN_HEADER_LENGTH_BYTES;
-        }
-        else
-        {
+        }else{
             buffer_position += packet_length_in_bytes;
         }
         buffer_uint32 = (uint32_t *) (buffer + buffer_position);
@@ -2031,8 +1633,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 //			printf("\n\ntype F: %08X %08X %08X %X %X \n\n", hdr[0],  hdr[1],  hdr[2], event_type, ch_id);
 //		}
 
-        if ((header_type == 0xF) && (event_type == 0x0) && (ch_id == 0xD))
-        {
+        if ((header_type == 0xF) && (event_type == 0x0) && (ch_id == 0xD)){
             close_board(board_id);
             exit_if_all_files_closed();
         }
@@ -2059,16 +1660,13 @@ int main (int32_t argc, char **argv){
 	int32_t num_bytes_read = 0;
 	//int64_t bytes_written_to_file = 0; // MBO 20200619:  changed to array
 
-	#ifdef SINGLE_FILE
-	#else
-		#if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-			uint32_t all_inhibited;
-		#endif // defined
-		uint32_t i;
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			int32_t j;
-		#endif // FILE_PER_CHANNEL
-	#endif // SINGLE_FILE
+  #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+    uint32_t all_inhibited;
+  #endif // defined
+  uint32_t i;
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    int32_t j;
+  #endif // FILE_PER_CHANNEL
 
 
 	// Show version and all build switches"
@@ -2098,17 +1696,9 @@ int main (int32_t argc, char **argv){
 	    printf ("Operating Mode: Continuous\n");
     #endif 
 	//======================= Disk IO
-    #ifdef USE_POSIX_FILE_LIB
-        printf ("Disk IO Library: POSIX\n");
-    #else
-        printf ("Disk IO Library: ANSI C\n");
-    #endif
+  printf ("Disk IO Library: ANSI C\n");
 	//======================= Network Library
-    #ifdef __WIN32__
-        printf ("Network Library: Winsock2\n");
-    #else
-        printf ("Network Library: GNU\n");
-    #endif
+  printf ("Network Library: GNU\n");
 	//======================= Filter Type F Message
     #ifdef FILTER_TYPE_F
         printf ("Type F Message Filter: Enabled\n");
@@ -2116,14 +1706,10 @@ int main (int32_t argc, char **argv){
         printf ("Type F Message Filter: Disabled\n");
     #endif
 	//======================= Network Library 
-    #ifdef SINGLE_FILE
-        printf ("Data Organization: File per IOC\n");
+    #ifdef FILE_PER_CHANNEL
+        printf ("Data Organization: File per Channel\n");
     #else
-        #ifdef FILE_PER_CHANNEL
-            printf ("Data Organization: File per Channel\n");
-        #else
-            printf ("Data Organization: File per Digitizer\n");
-        #endif 
+        printf ("Data Organization: File per Digitizer\n");
     #endif 
 	//======================= Folder Organ
     #ifdef FOLDER_PER_RUN
@@ -2147,44 +1733,27 @@ int main (int32_t argc, char **argv){
 	printf ("\n");
 	printf ("\n");
 
-	#ifdef __WIN32__
-		// Declare and initialize variables
-		WSADATA wsaData;
-		int32_t iResult;
-		// Initialize Winsock
-		iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-		if (iResult != 0) {
-			printf("WSAStartup failed: %d\n", iResult);
-			return 1;
-		}
-	#endif // __WIN32__
-
-	#ifdef SINGLE_FILE
-		bytes_written_to_file = 0;
-		ofile = 0;
-	#else
-		min_board_id = 0xFFFF;
-		max_board_id = 0x0000;
-		#ifdef FILE_PER_CHANNEL	// MBO 20200616:
-			for (i = 0; i < MAXBOARDID; i++){
-				for (j = 0; j < MAXCHID; j++) {
-					bytes_written_to_file[i][j] = 0;
-					ofile[i][j] = 0;
-				#if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-					write_inhibit[i][j] = 2;
-				#endif // FULL_FILE_MODE
-				}
-			}
-		#else
-			for (i = 0; i < MAXBOARDID; i++) {
-				bytes_written_to_file[i] = 0;
-				ofile[i] = 0;
-				#if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
-					write_inhibit[i] = 2;
-				#endif // FULL_FILE_MODE
-			}
-		#endif // FILE_PER_CHANNEL
-	#endif // SINGLE_FILE
+  min_board_id = 0xFFFF;
+  max_board_id = 0x0000;
+  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+    for (i = 0; i < MAXBOARDID; i++){
+      for (j = 0; j < MAXCHID; j++) {
+        bytes_written_to_file[i][j] = 0;
+        ofile[i][j] = 0;
+      #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+        write_inhibit[i][j] = 2;
+      #endif // FULL_FILE_MODE
+      }
+    }
+  #else
+    for (i = 0; i < MAXBOARDID; i++) {
+      bytes_written_to_file[i] = 0;
+      ofile[i] = 0;
+      #if defined(SINGLESHOT) && defined(FULL_FILE_MODE)
+        write_inhibit[i] = 2;
+      #endif // FULL_FILE_MODE
+    }
+  #endif // FILE_PER_CHANNEL
 
 	/* help */
 
@@ -2214,18 +1783,13 @@ int main (int32_t argc, char **argv){
 		printf ("\n");
 		printf ("<2:filename> specifies the base file name.\n");
 		printf ("<3:extension_prefix> specifies the start of the second part of the file name.\n");
-        #ifdef SINGLE_FILE
-		printf ("                     The actual file name will be <filename>_<chunk number>\n");
-		printf ("                     e.g. data_run_001.gtd_001\n");
-        #else
-            #ifdef FILE_PER_CHANNEL
+      #ifdef FILE_PER_CHANNEL
         printf ("                     The actual file name will be <filename>.<extension_prefix>_<chunk number>_<board_id>_<ch_id>\n");
         printf ("                     e.g. data_run_001.gtd_001_1234_3 = Chunk:1, Board_ID:1234, Ch_ID:3\n");
-            #else
+      #else
         printf ("                     The actual file name will be <filename>.<extension_prefix>_<chunk number>_<board_id>\n");
         printf ("                     e.g. data_run_001.gtd_001_1234 = Chunk:1, Board_ID:1234\n");
-            #endif // FILE_PER_CHANNEL
-        #endif // SINGLE_FILE
+      #endif // FILE_PER_CHANNEL
 		printf ("\n");
 		printf ("<3:maxfilesize> specifies the max file size in bytes. If a file\n");
 		printf ("                runs over the limit a new file will be opened with a new\n");
@@ -2266,25 +1830,21 @@ int main (int32_t argc, char **argv){
 	/* get/hide output file name in global string */
 
 	#ifdef FOLDER_PER_RUN
-		#ifdef __WIN32__
-			sprintf (fn, "%s\\%s.%s_%3.3i", argv[2], argv[2], argv[3], chunck);
-		#else
-			sprintf (fn, "%s/%s.%s_%3.3i", argv[2], argv[2], argv[3], chunck);
-		#endif // __WIN32__
-    #else
-        sprintf (fn, "%s.%s_%3.3i", argv[2], argv[3], chunck);
-    #endif // FOLDER_PER_RUN
+    sprintf (fn, "%s/%s.%s_%3.3i", argv[2], argv[2], argv[3], chunck);
+  #else
+    sprintf (fn, "%s.%s_%3.3i", argv[2], argv[3], chunck);
+  #endif // FOLDER_PER_RUN
 
-    #ifdef FOLDER_PER_RUN
-        int32_t mkdir_ret;
-        // Need to check if folder already exists
-        // and make the folder if it does not.
-        #ifdef __WIN32__
-            mkdir_ret = _mkdir(argv[2]);
-        #else
-            mkdir_ret = mkdir(argv[2], 0777);
-        #endif // __WIN32__
-    #endif // FOLDER_PER_RUN
+  #ifdef FOLDER_PER_RUN
+      int32_t mkdir_ret;
+      // Need to check if folder already exists
+      // and make the folder if it does not.
+      #ifdef __WIN32__
+          mkdir_ret = _mkdir(argv[2]);
+      #else
+          mkdir_ret = mkdir(argv[2], 0777);
+      #endif // __WIN32__
+  #endif // FOLDER_PER_RUN
 
 	/* catch contrl-c so we can clean up properly */
 
@@ -2305,11 +1865,8 @@ int main (int32_t argc, char **argv){
 		fflush (stdout);
 		exit (1);
 	};
-	#ifdef __WIN32__
-		sprintf (hostIP, "%s", inet_ntoa (*(in_addr*)(hp->h_addr)));
-	#else
-		sprintf (hostIP, "%s", inet_ntop (hp->h_addrtype, hp->h_addr, hostIP, sizeof (hostIP)));
-	#endif
+
+  sprintf (hostIP, "%s", inet_ntop (hp->h_addrtype, hp->h_addr, hostIP, sizeof (hostIP)));
 
 	Receiver = (char *) calloc (sizeof (struct rcvrInstance), 1);
 	Receiver = initReceiver (hostIP);
@@ -2462,35 +2019,28 @@ int main (int32_t argc, char **argv){
 							/* range because that makes it much easier	*/
 							/* to merger the data later on */
 
-							#ifndef SINGLESHOT
-                                #ifdef SINGLE_FILE
-                                    if (totbytesInLargestFile < bytes_written_to_file)
-                                        totbytesInLargestFile = bytes_written_to_file;
-                                #else
-                                    if (min_board_id <= max_board_id){
-                                    #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                        for (i = min_board_id; i <= max_board_id; i++){
-                                            for (j = 0; j < MAXCHID; j++){
-                                                if (totbytesInLargestFile < bytes_written_to_file[i][j])
-                                                    totbytesInLargestFile = bytes_written_to_file[i][j];
-											}
-										}
-                                    #else
-                                        for (i = min_board_id; i <= max_board_id; i++){
-                                            if (totbytesInLargestFile < bytes_written_to_file[i])
-                                                totbytesInLargestFile = bytes_written_to_file[i];
-										}
-                                    #endif // FILE_PER_CHANNEL
-                                    }
-                                #endif // SINGLE_FILE
-                            #endif // SINGLESHOT
+							#ifndef SINGLESHOT                      
+                if (min_board_id <= max_board_id){
+                  #ifdef FILE_PER_CHANNEL	// MBO 20200616:
+                      for (i = min_board_id; i <= max_board_id; i++){
+                          for (j = 0; j < MAXCHID; j++){
+                              if (totbytesInLargestFile < bytes_written_to_file[i][j])
+                                  totbytesInLargestFile = bytes_written_to_file[i][j];
+                          }
+                        }
+                  #else
+                      for (i = min_board_id; i <= max_board_id; i++){
+                          if (totbytesInLargestFile < bytes_written_to_file[i])
+                              totbytesInLargestFile = bytes_written_to_file[i];
+                          }
+                  #endif // FILE_PER_CHANNEL
+                }
+              #endif // SINGLESHOT
 						} while (st > 0);
-
 
 				};
 
 		}
-
 
 	/* done (we should never really get here) */
 
