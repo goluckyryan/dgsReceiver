@@ -119,11 +119,11 @@
 #define DIG_MIN_HEADER_LENGTH_BYTES DIG_MIN_HEADER_LENGTH_UINT32 * 4
 // TRIG_MIN_HEADER_LENGTH_UINT32: The smallest trigger header than can be processed, in
 //	terms of 32-bit words.
-#define TRIG_MIN_HEADER_LENGTH_UINT32 8
+#define TRIG_MIN_HEADER_LENGTH_UINT32 16
 // TRIG_MIN_HEADER_LENGTH_BYTES: The smallest trigger header than can be processed, in
 //	terms of bytes.
 #define TRIG_MIN_HEADER_LENGTH_BYTES TRIG_MIN_HEADER_LENGTH_UINT32 * 4
-#define REFORMATTED_HEADER_LENGTH_UINT32 10
+#define REFORMATTED_HEADER_LENGTH_UINT32 12
 #define REFORMATTED_HEADER_LENGTH_BYTES REFORMATTED_HEADER_LENGTH_UINT32 * 4
 
 #define DIG_BOARD_ID_MASK 0xFFF
@@ -1457,8 +1457,8 @@ setRecLen (int32_t rl)
 	recLenGDig = rl / 2;
 }
 
-int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write)
-{
+int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t header, int32_t size2write){
+    printf("\033[31m!!!!!!!! %s \033[0m\n", __func__);
 	char str[550];
 	int32_t wstat = 0;
 	uint32_t *buffer_uint32;
@@ -1469,8 +1469,9 @@ int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write)
         return -2;
     #else
         // MBO 20220801: Quick hack to get trigger data to disk for inital testing.
-        printf ("ooops:	event started with %08X instead of 0xAAAAXXXX.  Dumping mysterious data to diagnostic file\n", *buffer_uint32);
         sprintf (str, "%s_DIAG_DATA", fn);
+        //printf ("ooops:	event started with %08X instead of 0xAAAAXXXX.\n  Dumping mysterious data to %s\n", *buffer_uint32, str);
+        printf ("ooops:	event started with %08X instead of 0xAAAAXXXX.\n  Dumping whole buffer to %s\n", header, str);
 
         /* open file */
         #ifdef USE_POSIX_FILE_LIB
@@ -1491,13 +1492,13 @@ int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write)
             diag_unknown_ofile = fopen (str, "ab");
             if (!FILE_OPEN_CHECK(diag_unknown_ofile))
             {
-                printf ("Can't open or create diagnostic output file.");
+                printf ("Can't open or create diagnostic output file.\n");
                 return -2;
             }
             wstat = fwrite (buffer, size2write, 1, diag_unknown_ofile);
             if (wstat != size2write)
             {
-                printf("Aborting write of %d bytes due to unhandled write error.", size2write);
+                printf("Aborting write of %d bytes due to unhandled write error.\n", size2write);
                 return -2;
             }
             fclose(diag_unknown_ofile);
@@ -1534,17 +1535,6 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 //	static uint32_t header_length = 0;
     static uint32_t timestamp_lower = 0;
     static uint32_t timestamp_upper = 0;
-    // additional data fields to decode for triggers:
-    static uint32_t trigger_type = 0;
-    static uint32_t timestamp_middle = 0;
-    static uint32_t wheel = 0;
-    static uint32_t aux_data = 0;
-    static uint32_t tdc_ts_lo = 0;
-    static uint32_t trig_acks = 0;
-    static uint32_t offset[4] = {0,0,0,0};
-    static uint32_t val_p0_p1 = 0;
-    static uint32_t val_p2_p3 = 0;
-
 
     bool is_digitizer_data = true;
 	bool is_trigger_data = true;
@@ -1594,7 +1584,7 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
         // check first word for proper data alignment
         if ((*buffer_uint32 & ANY_SOE_MASK) != ANY_SOE)
         {
-            return dumpUnknownDataToDaigFile(buffer, size2write);
+            return dumpUnknownDataToDaigFile(buffer, buffer_uint32[0], size2write);
         }
         else if ((*buffer_uint32 & DIG_SOE_MASK) == DIG_SOE)
         {
@@ -1698,20 +1688,19 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 
             /* extract the timestamp from the header */
             /* after swapping the bytes */
-            for (i = 0; i < TRIG_MIN_HEADER_LENGTH_UINT32; i++)
-            {
-                hdr[i] = buffer_uint32[i];
+            for (i = 0; i < TRIG_MIN_HEADER_LENGTH_UINT32; i++){
+                hdr[i] = ntohl(buffer_uint32[i]);
 
                 /* before 4 3 2 1 */
                 /*		  | | | | */
                 /* after  1 2 3 4 */
 
                 // MBO 20200616: use ntohl here instead?
-                t1 = (hdr[i] & 0x000000ff) << 24;
-                t2 = (hdr[i] & 0x0000ff00) << 8;
-                t3 = (hdr[i] & 0x00ff0000) >> 8;
-                t4 = (hdr[i] & 0xff000000) >> 24;
-                hdr[i] = t1 + t2 + t3 + t4;
+                // t1 = (hdr[i] & 0x000000ff) << 24;
+                // t2 = (hdr[i] & 0x0000ff00) << 8;
+                // t3 = (hdr[i] & 0x00ff0000) >> 8;
+                // t4 = (hdr[i] & 0xff000000) >> 24;
+                // hdr[i] = t1 + t2 + t3 + t4;
                 /*
                 hdr[i] = ntohl(hdr[i]);	// MBO 20200616:
                 */
@@ -1724,60 +1713,48 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
             //1		|     Geo Addr            |                 PACKET LENGTH                        |                    USER PACKET DATA                       |     CHANNEL ID    |
             //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
             //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
-
-            ch_id					= 0xF;//
-        //  AAAA        			= (hdr[0] & 0x0000FFFF) >> 0;   skip the AAAA's
-            trigger_type			= (hdr[0] & 0xFFFF0000) >> 16;
-            timestamp_lower 		= (hdr[1] & 0x0000FFFF) >> 0;
-            timestamp_middle        = (hdr[1] & 0xFFFF0000) >> 16;
-            timestamp_upper 		= (hdr[2] & 0x0000FFFF) >> 0;
-            wheel	                = (hdr[2] & 0xFFFF0000) >> 16;
-            aux_data                = (hdr[3] & 0x0000FFFF) >> 0;
-            board_id	            = (hdr[3] & 0xFFFF0000) >> 16;
-            tdc_ts_lo               = (hdr[4] & 0x0000FFFF) >> 0;
-            trig_acks               = (hdr[4] & 0xFFFF0000) >> 16;
-            offset[0]               = (hdr[5] & 0x0000FFFF) >> 0;
-            offset[1]               = (hdr[5] & 0xFFFF0000) >> 16;
-            offset[2]               = (hdr[6] & 0x0000FFFF) >> 0;
-            offset[3]               = (hdr[6] & 0xFFFF0000) >> 16;
-            val_p0_p1               = (hdr[7] & 0x0000FFFF) >> 0;
-            val_p2_p3               = (hdr[7] & 0xFFFF0000) >> 16;
-
+            
+            ch_id		      = 0x0;
+            board_id	      = 0xF; 
+            header_type       = 0xE;
+            
             // Trim the board id, or "user package data" to the maximum
             // number of bits supported by the digitizer header.
-            board_id = board_id & DIG_BOARD_ID_MASK;
-            packet_length_in_bytes	= REFORMATTED_HEADER_LENGTH_BYTES - 4;
+            // board_id = board_id & DIG_BOARD_ID_MASK;
+            packet_length_in_words  = 11;
+            packet_length_in_bytes	= packet_length_in_words * 4;
 
             reformatted_hdr[0] = 0xAAAAAAAA;
-            reformatted_hdr[1] = ch_id              << 0;
-            reformatted_hdr[1] |= board_id          << 4;
-            reformatted_hdr[1] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 16;
-            reformatted_hdr[2] = timestamp_lower    << 0;
-            reformatted_hdr[2] |= timestamp_middle  << 16;
-            reformatted_hdr[3] = timestamp_upper    << 0;
-            reformatted_hdr[3] |= 0x7               << 23; // event_type
-            reformatted_hdr[3] |= ((uint32_t)(REFORMATTED_HEADER_LENGTH_UINT32 - 1)) << 26;
-            reformatted_hdr[4] = tdc_ts_lo            << 0;
-            reformatted_hdr[4] |= trigger_type      << 16;
-            reformatted_hdr[5] = offset[0]          << 0;
-            reformatted_hdr[5] |= offset[1]         << 16;
-            reformatted_hdr[6] = offset[2]          << 0;
-            reformatted_hdr[6] |= offset[3]         << 16;
-            reformatted_hdr[7] = aux_data           << 0;
-            reformatted_hdr[7] |= wheel             << 16;
-            reformatted_hdr[8] = val_p0_p1          << 0;
-            reformatted_hdr[8] |= val_p2_p3         << 16;
-            reformatted_hdr[9] = 0x00               << 0;       // unused
-            reformatted_hdr[9] |= trig_acks          << 16;
+            
+            reformatted_hdr[1]  = ch_id;
+            reformatted_hdr[1] |= board_id << 4;
+            reformatted_hdr[1] |= packet_length_in_words << 16;  // always 8 words payload
+
+            reformatted_hdr[2]  = hdr[4]   ;
+            reformatted_hdr[2] |= hdr[3]  << 16;
+            
+            reformatted_hdr[3]  = hdr[2]   ;
+            reformatted_hdr[3] |= header_type  << 16; // header_type
+            //reformatted_hdr[3] |= 0x0  << 23; // event_type
+            reformatted_hdr[3] |= 3 << 26;
+
+            reformatted_hdr[ 4] = (hdr[1] << 16) + hdr[2];
+            reformatted_hdr[ 5] = (hdr[3] << 16) + hdr[4];
+            reformatted_hdr[ 6] = (hdr[5] << 16) + hdr[6];
+            reformatted_hdr[ 7] = (hdr[7] << 16) + hdr[8];
+            reformatted_hdr[ 8] = (hdr[9] << 16) + hdr[10];
+            reformatted_hdr[ 9] = (hdr[11] << 16) + hdr[12];
+            reformatted_hdr[10] = (hdr[13] << 16) + hdr[14];
+            reformatted_hdr[11] =  hdr[15];
 
             #ifdef WRITEGTFORMAT
                 /* create the GEB header */
                 Geb.type = GEB_TYPE_DGS;
                 Geb.length = packet_length_in_bytes;
                 //full 48-bit timestamp stored in 64-bit uint32_t.
-                Geb.timestamp = ((uint64_t)(timestamp_upper)) << 32;
-                Geb.timestamp |= ((uint64_t)(timestamp_middle)) << 16;
-                Geb.timestamp |= (uint64_t)(timestamp_lower);
+                Geb.timestamp  = ((uint64_t)(hdr[2])) << 32;
+                Geb.timestamp |= ((uint64_t)(hdr[3])) << 16;
+                Geb.timestamp |=  (uint64_t)(hdr[4]);
             #endif //WRITEGTFORMAT
 
             if (buffer_position + packet_length_in_bytes > buffer_size)
@@ -1786,23 +1763,23 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                 return -2;
             }
 
-            if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32)
-            {
-                printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
-                return -2;
-            }
-            else if (buffer_position + packet_length_in_bytes < buffer_size)
-            {
-                if (buffer_uint32[packet_length_in_words] != TRIG_SOE)
-                {
-                    printf ("ooops:	Packet length should be %i, but 0xAAAAXXXX not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
-                    return -2;
-                }
-            }
+            // if (packet_length_in_words < DIG_MIN_HEADER_LENGTH_UINT32)
+            // {
+            //     printf ("ooops:	packet_length: %i (%i bytes) is less than minimum required for header(%i Bytes)!! skip block...\n", packet_length_in_words, packet_length_in_bytes, DIG_MIN_HEADER_LENGTH_BYTES);
+            //     return -2;
+            // }
+            // else if (buffer_position + packet_length_in_bytes < buffer_size)
+            // {
+            //     if (buffer_uint32[packet_length_in_words] != TRIG_SOE)
+            //     {
+            //         printf ("ooops:	Packet length should be %i, but 0xAAAAXXXX not found at boundary! Got %08X instead. skip block...\n", packet_length_in_words, buffer_uint32[packet_length_in_words]);
+            //         return -2;
+            //     }
+            // }
         }
         else
         {
-            return dumpUnknownDataToDaigFile(buffer, size2write);
+            return dumpUnknownDataToDaigFile(buffer, buffer_uint32[0], size2write);
         }
 
         /* see if the proper file is open */
@@ -1869,20 +1846,20 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                             sprintf (str, "trig_%s", fn);
                     #else
                         #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                            sprintf (str, "trig_%s_%4.4i_%01X", fn, board_id, ch_id);
+                            sprintf (str, "%s_trig_%4.4i_%01X", fn, board_id, ch_id);
                         #else
-                            sprintf (str, "trig_%s_%4.4i", fn, board_id);
+                            sprintf (str, "%s_trig_%4.4i", fn, board_id);
                         #endif
                     #endif
 
                     #ifdef DEBUG_OUTPUT_FILE
                         #ifdef SINGLE_FILE
-                                sprintf (diag_str, "diag_trig_%s", fn);
+                                sprintf (diag_str, "%s_diag_trig", fn);
                         #else
                             #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                sprintf (diag_str, "diag_trig_%s_%4.4i_%01X", fn, board_id, ch_id);
+                                sprintf (diag_str, "%s_diag_trig_%4.4i_%01X", fn, board_id, ch_id);
                             #else
-                                sprintf (diag_str, "diag_trig_%s_%4.4i", fn, board_id);
+                                sprintf (diag_str, "%s_diag_trig_%4.4i", fn, board_id);
                             #endif
                         #endif
                     #endif // DEBUG_OUTPUT_FILE
@@ -2157,33 +2134,11 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
                         #ifdef SINGLE_FILE
                         #else
                             #ifdef FILE_PER_CHANNEL	// MBO 20200616:
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[0]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[1]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[2]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[3]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[4]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[5]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[6]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[7]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[8]);
-                                fprintf(diag_ofile[board_id][ch_id], "%.08X\n", reformatted_hdr[9]);
-                                fprintf(diag_ofile[board_id][ch_id], "trigger_type: %.08X\n", trigger_type);
-                                fprintf(diag_ofile[board_id][ch_id], "timestamp_lower: %.08X\n", timestamp_lower);
-                                fprintf(diag_ofile[board_id][ch_id], "timestamp_middle: %.08X\n", timestamp_middle);
-                                fprintf(diag_ofile[board_id][ch_id], "timestamp_upper: %.08X\n", timestamp_upper);
-                                fprintf(diag_ofile[board_id][ch_id], "wheel: %.08X\n", wheel);
-                                fprintf(diag_ofile[board_id][ch_id], "aux_data: %.08X\n", aux_data);
-                                fprintf(diag_ofile[board_id][ch_id], "board_id: %.08X\n", board_id);
-                                fprintf(diag_ofile[board_id][ch_id], "tdc_ts_lo: %.08X\n", tdc_ts_lo);
-                                fprintf(diag_ofile[board_id][ch_id], "trig_acks: %.08X\n", trig_acks);
-                                fprintf(diag_ofile[board_id][ch_id], "offset[0]: %.08X\n", offset[0]);
-                                fprintf(diag_ofile[board_id][ch_id], "offset[1]: %.08X\n", offset[1]);
-                                fprintf(diag_ofile[board_id][ch_id], "offset[2]: %.08X\n", offset[2]);
-                                fprintf(diag_ofile[board_id][ch_id], "offset[3]: %.08X\n", offset[3]);
-                                fprintf(diag_ofile[board_id][ch_id], "val_p0_p1: %.08X\n", val_p0_p1);
-                                fprintf(diag_ofile[board_id][ch_id], "val_p2_p3: %.08X\n", val_p2_p3);
+                                for( unsigned int i = 0; i < 12; i++){
+                                    fprintf(diag_ofile[board_id][ch_id], "%08X\n", reformatted_hdr[i]);
+                                }
                             #else
-                                fprintf(diag_ofile[board_id], "%.08X\n", (char *)(&(reformatted_hdr[0])));
+                                fprintf(diag_ofile[board_id], "%08X\n", (char *)(&(reformatted_hdr[0])));
                             #endif
                         #endif
                     #endif

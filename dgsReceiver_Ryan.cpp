@@ -845,8 +845,7 @@ void setRecLen (int32_t rl) {
 /*----------------------------------------------------------------------*/
 int32_t dumpUnknownDataToDaigFile(int8_t *buffer, int32_t size2write) {
 
-	printf("#### %s\n", __func__);
-
+	printf("\033[31m!!!!!!!! %s \033[0m\n", __func__);
 	char str[550];
 	int32_t wstat = 0;
 	uint32_t *buffer_uint32;
@@ -1067,11 +1066,10 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
       //2		|                                                          LEADING EDGE DISCRIMINATOR TIMESTAMP[31:0]                                                            |
       //3		|         HEADER LENGTH        |  EVENT TYPE  |  0 | TTS| INT|    HEADER TYPE    |                   LEADING EDGE DISCRIMINATOR TIMESTAMP[47:32]                 |
 
-      ch_id					    = 0xF;
+      ch_id					    = 0x0;
       board_id	        = 0xF; 
-      header_type       = 0xF;
+      header_type       = 0xE;
       
-
       // Trim the board id, or "user package data" to the maximum
       // number of bits supported by the digitizer header.
       // board_id = board_id & DIG_BOARD_ID_MASK;
@@ -1088,9 +1086,9 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
       reformatted_hdr[2] |= hdr[3]  << 16;
       
       reformatted_hdr[3]  = hdr[2]   ;
-      reformatted_hdr[3] |= header_type  << 16; // event_type
-      reformatted_hdr[3] |= 0x7  << 23; // event_type
-      reformatted_hdr[3] |= 4 << 26;
+      reformatted_hdr[3] |= header_type  << 16; // header_type
+      //reformatted_hdr[3] |= 0x0  << 23; // event_type
+      reformatted_hdr[3] |= 3 << 26;
 
       reformatted_hdr[ 4] = (hdr[1] << 16) + hdr[2];
       reformatted_hdr[ 5] = (hdr[3] << 16) + hdr[4];
