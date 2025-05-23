@@ -307,7 +307,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
   // Get data from network socket
   // there are few types of return data
 
-  debug = 0;
+  debug = 1;
 
 	struct rcvrInstance *instance;
 	struct reqPacket request;
@@ -368,10 +368,11 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 			return -1;
 		}else{
 			if (debug > 0) {
-				printf (" sent request data=\n");
+				printf (" sent request data=");
 				for(unsigned int i=0; i < (sizeof (struct reqPacket)); i++){
-					printf ("\t 0x%08X \n", ((char *) &request)[i]);
+					printf ("%02X ", ((char *) &request)[i]);
 				}
+        printf("\n");
 			}
 		}
 	}   
@@ -380,16 +381,17 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
     // receive data over network socket, return number of byte received, 0 = closed by peer, -1 error
     numret = recv (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret, 0);
 		if (numret <= 0){
-			if (debug > 0) printf ("Error, no more data: need: %d total: %d\n", (int32_t)(sizeof (evtServerRetStruct)) - (int32_t)(bytesret), (uint32_t)(sizeof (evtServerRetStruct)));
+      if (debug > 0) printf ("Error, no more data: need: %d total: %d\n", (int32_t)(sizeof (evtServerRetStruct)) - (int32_t)(bytesret), (uint32_t)(sizeof (evtServerRetStruct)));
 			break;
 		}else{
-			bytesret += numret;
+      bytesret += numret;
 			if (debug > 0){
-				printf ("received bytes=%d, bytesret=%d | %d\n", numret, bytesret, (int32_t)(sizeof (evtServerRetStruct)));
-				printf ("received data=\n");
+        printf ("received bytes=%d, bytesret=%d | %d\n", numret, bytesret, (int32_t)(sizeof (evtServerRetStruct)));
+				printf ("received data=");
 				for(unsigned int i=0;i < (sizeof (struct reqPacket)); i++){
-					printf ("%08X \n", (((char*)((void *)(&firstreply.type))) + bytesret)[i]);
+          printf ("%02X ", (((char*)((void *)(&firstreply.type))) + bytesret)[i]);
 				}
+        printf("\n");
 			}
 		}
 	}// end of while-loop

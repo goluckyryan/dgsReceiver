@@ -1,3 +1,1 @@
-scp -rp dgsReceiver.cpp dgs@slopebox:/global/ioc/dgsReceiver/.
-scp -rp dgsReceiver_Ryan.cpp dgs@slopebox:/global/ioc/dgsReceiver/.
-# scp -rp dgsReceiver_Ryan dgs@slopebox:/global/ioc/dgsReceiver/.
+rsync -av tcp_Receiver.cpp Makefile dgsReceiver_Ryan.cpp dgsReceiver.cpp dgs@slopebox:/global/ioc/dgsReceiver/.
