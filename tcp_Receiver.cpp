@@ -15,7 +15,7 @@
 
 #define ACQ_STOP -1
 
-int debug = 1;
+int debug = 0;
 int netSocket = -1;
 
 struct gebData{
@@ -42,14 +42,14 @@ int GetData(){
       sleep(2);
       continue;
     }else{
-      printf("Request sent. ");
+      if( debug > 0 ) printf("Request sent. ");
     }
     
     int bytes_received = 0;
     do{
       bytes_received = recv(netSocket, ((char *) &reply), sizeof(reply), 0);
       if (bytes_received > 0) {
-        if( debug > 0){
+        if( debug > 1){
           printf("\n");
           printf("Byte received : %d \n", bytes_received);
           printf("received data = \n");
@@ -66,13 +66,15 @@ int GetData(){
 
     replyType = ntohl(reply[0]);
   
-    if( replyType == SERVER_SUMMARY){
-      printf("Server summary.\n");
-    }else if ( replyType == INSUFF_DATA){
-      printf("Received Insufficient data, request again... \n");
-    }else{
-      printf("No data\n");
-      return ACQ_STOP;
+    if( debug > 0 ) {
+      if( replyType == SERVER_SUMMARY){
+        printf("Server summary.\n");
+      }else if ( replyType == INSUFF_DATA){
+        printf("Received Insufficient data, request again... \n");
+      }else{
+        printf("No data\n");
+        return ACQ_STOP;
+      }
     }
     usleep(500000);  // 500,000 microseconds = 0.5 seconds
   }while( replyType != SERVER_SUMMARY );
@@ -112,17 +114,35 @@ int WriteData(int bytes_received){
   do{
 
     if(data[index] == 0xAAAAAAAA){ //==== DIG data
-      
+
       int header[3];
-      for( int i = 0; i < 3; i++) header[i] = ntohl(data[index+i]);
+      for( int i = 0; i < 3; i++) header[i] = ntohl(data[index+i+1]);
 
       int ch_id					          = (header[0] & 0x0000000F) >> 0;	// Word 1: 3..0
+      int event_type				      = (header[2] & 0x03800000) >> 23;	// Word 3: 25..23
+
+      if( ch_id >= 10 ) {
+        std::string msg = "unknown";
+        switch (ch_id){
+          case 0xD : msg = "Run is done"; break;
+          case 0xE : msg = "Empty"; break;
+          case 0xF : {
+            msg = "FIFO issue";
+            if( event_type == 1) msg += " - overflow";
+            if( event_type == 2) msg += " - underflow";
+          }break;
+        }
+        printf("\033[34mType %X data encountered (%s). skip.\033[0m\n", ch_id, msg.c_str());
+        if( debug > 0 ) for( int i = 0 ; i < 4; i++) printf("%d | 0x%08X\n", index + i, ntohl(data[index+i]));
+        index += 4; // Type F data is always 4 words.
+        continue;
+      }
+
       int board_id 			          = (header[0] & 0x0000FFF0) >> 4;	// Word 1: 15..4
       int packet_length_in_words	= (header[0] & 0x07FF0000) >> 16;	// Word 1: 26..16
       int timestamp_lower 		    = (header[1] & 0xFFFFFFFF) >> 0;	// Word 2: 31..0
       int timestamp_upper 		    = (header[2] & 0x0000FFFF) >> 0;	// Word 3: 15..0
-      int header_type				      = (header[2] & 0x000F0000) >> 16;	// Word 3: 19..16
-      int event_type				      = (header[2] & 0x03800000) >> 23;	// Word 3: 25..23
+      // int header_type				      = (header[2] & 0x000F0000) >> 16;	// Word 3: 19..16
 
       int packet_length_in_bytes	= packet_length_in_words * 4;
 
@@ -145,8 +165,10 @@ int WriteData(int bytes_received){
         sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
         outFile[board_id][ch_id] = fopen(outFileName, "ab");
         if (!outFile[board_id][ch_id]) {
-          printf("Failed to open file (%s) for writing.\n", outFileName);
+          printf("\033[31m Failed to open file (%s) for writing. \033[0m\n", outFileName);
           return 1;
+        }else{
+          printf("\033[34m Opened %s \033[0m \n", outFileName);
         }
       }
 
@@ -156,7 +178,7 @@ int WriteData(int bytes_received){
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
       int header[TRIG_DATA_SIZE];
-      for( int i = 0; i < TRIG_DATA_SIZE; i++) header[i] = ntohl(data[index+i]);
+      for( int i = 1; i < TRIG_DATA_SIZE; i++) header[i] = ntohl(data[index+i]);
 
       int ch_id					    = 0x0;
       int board_id	        = 0xF;
@@ -205,11 +227,12 @@ int WriteData(int bytes_received){
       if ( outFile[board_id][ch_id] == NULL){
         char outFileName[1000];
         sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
-
         outFile[board_id][ch_id] = fopen(outFileName, "ab");
         if (!outFile[board_id][ch_id]) {
-          printf("Failed to open file (%s) for writing.\n", outFileName);
+          printf("\033[31m Failed to open file (%s) for writing. \033[0m\n", outFileName);
           return 1;
+        }else{
+          printf("\033[34m Opened %s \033[0m \n", outFileName);
         }
       }
 
@@ -235,6 +258,8 @@ int WriteData(int bytes_received){
     // printf("index : %d | %d\n", index, words_received);
 
   }while(index < words_received);
+
+  //TODO how many byte written to file
 
   return 0;
 }

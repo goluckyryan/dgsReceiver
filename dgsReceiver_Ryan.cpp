@@ -1259,8 +1259,8 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
     buffer_uint32 = (uint32_t *) (buffer + buffer_position);
 
     if ((header_type == 0xF) && (event_type == 0x0) && (ch_id == 0xD)){
-        close_board(board_id);
-        exit_if_all_files_closed();
+      close_board(board_id);
+      exit_if_all_files_closed();
     }
 
   };
