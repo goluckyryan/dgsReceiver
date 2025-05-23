@@ -25,8 +25,12 @@ struct gebData{
 };
 typedef struct gebData GEBDATA;
 
-int32_t data[10000];
+uint32_t data[10000];
 std::string runName;
+
+#define MAX_NUM_BOARD 0xFFF
+#define MAX_NUM_CHANNEL 100
+FILE * outFile[MAX_NUM_BOARD][MAX_NUM_CHANNEL]; // save each channel
 
 int GetData(){
   int replyType = 0;
@@ -135,20 +139,19 @@ int WriteData(int bytes_received){
 
       index += packet_length_in_words + 1; //? not sure
 
-      char outFileName[1000];
-      sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
-
-      FILE* outFile = fopen(outFileName, "ab");
-      if (!outFile) {
-        printf("Failed to open file (%s) for writing.\n", outFileName);
-        return 1;
+      
+      if ( outFile[board_id][ch_id] == NULL){
+        char outFileName[1000];
+        sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
+        outFile[board_id][ch_id] = fopen(outFileName, "ab");
+        if (!outFile[board_id][ch_id]) {
+          printf("Failed to open file (%s) for writing.\n", outFileName);
+          return 1;
+        }
       }
 
-      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile);
-      items_written += fwrite(&data[index], 1, packet_length_in_bytes, outFile); //todo not sure
-
-      fclose(outFile);
-
+      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile[board_id][ch_id]);
+      items_written += fwrite(&data[index], 1, packet_length_in_bytes, outFile[board_id][ch_id]); //todo not sure
     
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
@@ -156,37 +159,34 @@ int WriteData(int bytes_received){
       for( int i = 0; i < TRIG_DATA_SIZE; i++) header[i] = ntohl(data[index+i]);
 
       int ch_id					    = 0x0;
-      int board_id	        = 0xF; 
+      int board_id	        = 0xF;
       int header_type       = 0xE;
       
-      // Trim the board id, or "user package data" to the maximum
-      // number of bits supported by the digitizer header.
-      // board_id = board_id & DIG_BOARD_ID_MASK;
       int packet_length_in_words  = 10;
       int packet_length_in_bytes	= packet_length_in_words * 4;
 
-      int reformatted_hdr[11];
+      int payload[11];
 
-      reformatted_hdr[0] = 0xAAAAAAAA;
+      payload[0] = 0xAAAAAAAA;
       
-      reformatted_hdr[1]  = ch_id;
-      reformatted_hdr[1] |= board_id << 4;
-      reformatted_hdr[1] |= packet_length_in_words << 16;  // always 8 words payload
+      payload[1]  = ch_id;
+      payload[1] |= board_id << 4;
+      payload[1] |= packet_length_in_words << 16;  // always 8 words payload
 
-      reformatted_hdr[2]  = header[4]   ;
-      reformatted_hdr[2] |= header[3]  << 16;
+      payload[2]  = header[4]   ;
+      payload[2] |= header[3]  << 16;
       
-      reformatted_hdr[3]  = header[2]   ;
-      reformatted_hdr[3] |= header_type  << 16; // header_type
-      //reformatted_hdr[3] |= 0x0  << 23; // event_type
-      reformatted_hdr[3] |= 3 << 26;
+      payload[3]  = header[2]   ;
+      payload[3] |= header_type  << 16; // header_type
+      //payload[3] |= 0x0  << 23; // event_type
+      payload[3] |= 3 << 26;
 
-      reformatted_hdr[4] = (header[ 1] << 16) + header[ 5];
-      reformatted_hdr[5] = (header[ 6] << 16) + header[ 7];
-      reformatted_hdr[6] = (header[ 8] << 16) + header[ 9];
-      reformatted_hdr[7] = (header[10] << 16) + header[11];
-      reformatted_hdr[8] = (header[12] << 16) + header[13];
-      reformatted_hdr[9] = (header[14] << 16) + header[15];
+      payload[4] = (header[ 1] << 16) + header[ 5];
+      payload[5] = (header[ 6] << 16) + header[ 7];
+      payload[6] = (header[ 8] << 16) + header[ 9];
+      payload[7] = (header[10] << 16) + header[11];
+      payload[8] = (header[12] << 16) + header[13];
+      payload[9] = (header[14] << 16) + header[15];
 
       gebData GEB_data;
       GEB_data.type = 0;
@@ -202,19 +202,21 @@ int WriteData(int bytes_received){
 
       index += TRIG_DATA_SIZE;
 
-      char outFileName[1000];
-      sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
+      if ( outFile[board_id][ch_id] == NULL){
+        char outFileName[1000];
+        sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
 
-      FILE* outFile = fopen(outFileName, "ab");
-      if (!outFile) {
-        printf("Failed to open file (%s) for writing.\n", outFileName);
-        return 1;
+        outFile[board_id][ch_id] = fopen(outFileName, "ab");
+        if (!outFile[board_id][ch_id]) {
+          printf("Failed to open file (%s) for writing.\n", outFileName);
+          return 1;
+        }
       }
 
-      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile);
-      items_written += fwrite(reformatted_hdr, 1, sizeof(reformatted_hdr), outFile);
+      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile[board_id][ch_id]);
+      items_written += fwrite(payload, 1, sizeof(payload), outFile[board_id][ch_id]);
 
-      fclose(outFile);
+      // fclose(outFile);
       // printf("Wrote %zu bytes to output.bin\n", items_written);
 
     }else{
@@ -246,6 +248,12 @@ int main(int argc, char **argv) {
   }
 
   runName = argv[1];
+
+  for( int i = 0; i < MAX_NUM_BOARD; i++){
+    for( int j = 0; j < MAX_NUM_CHANNEL; j++){
+      outFile[i][j] = NULL;
+    }
+  }
 
   const int waitSec = 5;
 
@@ -297,7 +305,7 @@ int main(int argc, char **argv) {
 
   }while(bytes_received != ACQ_STOP);
 
-
+  
   // Close netSocket
   close(netSocket);
   return 0;
