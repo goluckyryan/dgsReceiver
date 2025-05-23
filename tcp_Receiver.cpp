@@ -15,7 +15,7 @@
 
 #define ACQ_STOP -1
 
-int debug = 0;
+int debug = 1;
 int netSocket = -1;
 
 struct gebData{
@@ -38,7 +38,7 @@ int GetData(){
       sleep(2);
       continue;
     }else{
-      printf("Request sent.");
+      printf("Request sent. ");
     }
     
     int bytes_received = 0;
@@ -202,11 +202,11 @@ int WriteData(int bytes_received){
       items_written += fwrite(reformatted_hdr, 1, sizeof(reformatted_hdr), outFile);
 
       fclose(outFile);
-      printf("Wrote %zu bytes to output.bin\n", items_written);
+      // printf("Wrote %zu bytes to output.bin\n", items_written);
 
     }else{
 
-      printf("\033[31m ERROR. unknown data type. dump data. \033[0m\n");
+      printf("\033[31m ERROR. unknown data type. dump data. index : %d \033[0m\n", index);
 
       // do{
       //   printf("%-4d | 0x%08X\n", index, data[index]);
@@ -217,7 +217,7 @@ int WriteData(int bytes_received){
       return -99;
     }
 
-    printf("index : %d | %d\n", index, words_received);
+    // printf("index : %d | %d\n", index, words_received);
 
   }while(index < words_received);
 

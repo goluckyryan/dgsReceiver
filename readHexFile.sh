@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# Usage: ./script.sh <binary_file> <num_words>
-
 # Check arguments
 if [ $# -ne 2 ]; then
     echo "Usage: $0 <binary_file> <num_words>"

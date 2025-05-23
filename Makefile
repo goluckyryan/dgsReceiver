@@ -13,4 +13,4 @@ tcp_Receiver: tcp_Receiver.cpp
 	$(CC) $(CFLAG) tcp_Receiver.cpp -o tcp_Receiver 
 
 clean:
-	-rm dgsReceiver_Ryan dgsReceiver
+	-rm dgsReceiver_Ryan dgsReceiver tcp_Receiver
