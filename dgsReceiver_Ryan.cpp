@@ -1075,7 +1075,7 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
       // Trim the board id, or "user package data" to the maximum
       // number of bits supported by the digitizer header.
       // board_id = board_id & DIG_BOARD_ID_MASK;
-      packet_length_in_words  = 11;
+      packet_length_in_words  = 10;
       packet_length_in_bytes	= packet_length_in_words * 4;
 
       reformatted_hdr[0] = 0xAAAAAAAA;
@@ -1092,15 +1092,12 @@ int32_t writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
       //reformatted_hdr[3] |= 0x0  << 23; // event_type
       reformatted_hdr[3] |= 3 << 26;
 
-      reformatted_hdr[ 4] = (hdr[1] << 16) + hdr[2];
-      reformatted_hdr[ 5] = (hdr[3] << 16) + hdr[4];
-      reformatted_hdr[ 6] = (hdr[5] << 16) + hdr[6];
-      reformatted_hdr[ 7] = (hdr[7] << 16) + hdr[8];
-      reformatted_hdr[ 8] = (hdr[9] << 16) + hdr[10];
-      reformatted_hdr[ 9] = (hdr[11] << 16) + hdr[12];
-      reformatted_hdr[10] = (hdr[13] << 16) + hdr[14];
-      reformatted_hdr[11] =  hdr[15];
-
+      reformatted_hdr[4] = (hdr[ 1] << 16) + hdr[ 5];
+      reformatted_hdr[5] = (hdr[ 6] << 16) + hdr[ 7];
+      reformatted_hdr[6] = (hdr[ 8] << 16) + hdr[ 9];
+      reformatted_hdr[7] = (hdr[10] << 16) + hdr[11];
+      reformatted_hdr[8] = (hdr[12] << 16) + hdr[13];
+      reformatted_hdr[9] = (hdr[14] << 16) + hdr[15];
 
       #ifdef WRITEGTFORMAT
         /* create the GEB header */

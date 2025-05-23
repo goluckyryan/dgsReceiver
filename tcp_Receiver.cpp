@@ -128,12 +128,27 @@ int WriteData(int bytes_received){
       GEB_data.timestamp  = ((uint64_t)(timestamp_upper)) << 32;
       GEB_data.timestamp |=  (uint64_t)(timestamp_lower);
 
-      if (packet_length_in_words + index  >= words_received){
+      if (packet_length_in_words + index  > words_received){
         printf("\033[31m ERROR. DIG Data. Word received < packet length. \033[0m\n");
         return -2;
       }
 
       index += packet_length_in_words + 1; //? not sure
+
+      char outFileName[1000];
+      sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
+
+      FILE* outFile = fopen(outFileName, "ab");
+      if (!outFile) {
+        printf("Failed to open file (%s) for writing.\n", outFileName);
+        return 1;
+      }
+
+      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile);
+      items_written += fwrite(&data[index], 1, packet_length_in_bytes, outFile); //todo not sure
+
+      fclose(outFile);
+
     
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
@@ -147,10 +162,10 @@ int WriteData(int bytes_received){
       // Trim the board id, or "user package data" to the maximum
       // number of bits supported by the digitizer header.
       // board_id = board_id & DIG_BOARD_ID_MASK;
-      int packet_length_in_words  = 11;
+      int packet_length_in_words  = 10;
       int packet_length_in_bytes	= packet_length_in_words * 4;
 
-      int reformatted_hdr[12];
+      int reformatted_hdr[11];
 
       reformatted_hdr[0] = 0xAAAAAAAA;
       
@@ -166,14 +181,12 @@ int WriteData(int bytes_received){
       //reformatted_hdr[3] |= 0x0  << 23; // event_type
       reformatted_hdr[3] |= 3 << 26;
 
-      reformatted_hdr[ 4] = (header[ 1] << 16) + header[ 2];
-      reformatted_hdr[ 5] = (header[ 3] << 16) + header[ 4];
-      reformatted_hdr[ 6] = (header[ 5] << 16) + header[ 6];
-      reformatted_hdr[ 7] = (header[ 7] << 16) + header[ 8];
-      reformatted_hdr[ 8] = (header[ 9] << 16) + header[10];
-      reformatted_hdr[ 9] = (header[11] << 16) + header[12];
-      reformatted_hdr[10] = (header[13] << 16) + header[14];
-      reformatted_hdr[11] =  header[15];
+      reformatted_hdr[4] = (header[ 1] << 16) + header[ 5];
+      reformatted_hdr[5] = (header[ 6] << 16) + header[ 7];
+      reformatted_hdr[6] = (header[ 8] << 16) + header[ 9];
+      reformatted_hdr[7] = (header[10] << 16) + header[11];
+      reformatted_hdr[8] = (header[12] << 16) + header[13];
+      reformatted_hdr[9] = (header[14] << 16) + header[15];
 
       gebData GEB_data;
       GEB_data.type = 0;
