@@ -99,6 +99,8 @@ public:
     size_t written = fwrite(data, size, countToWrite, file);
     writeByte += written * size;
     fileSize += written * size;
+    // if(written != countToWrite ) printf("write eeror\n.");
+    fflush(file);
     return written == countToWrite;
   }
 
@@ -381,13 +383,10 @@ int main(int argc, char **argv) {
     //============ Send request and get data 
     int bytes_received = GetData();
 
-    // for( int i = 0; i < word_received; i++){
-    //   printf("%-4d | 0x%08X\n", i, data[i]);
-    // }
-
     //============ Write data to file
     if( bytes_received >= 0 ) status = WriteData(bytes_received); // it decodes the data, and save the data for each channel.
-
+    
+    //============ Status
     time_t now = time(NULL);
     if (now - lastPrint >= displayTimeIntevral) { 
       time_t elapsed = now - startTime;
