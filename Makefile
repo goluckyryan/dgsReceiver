@@ -1,5 +1,5 @@
 CC=g++
-CFLAG= -O3 -lstdc++  -Wall -Wextra
+CFLAG= -O3 -Wall -Wextra
 
 all: dgsReceiver_Ryan dgsReceiver tcp_Receiver
 

@@ -1,21 +1,39 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string>
+#include <time.h>
 
-#define SERVER_IP "192.168.203.211"
-#define SERVER_PORT 9001
+int debug = 1;
 
-#define SERVER_SUMMARY 4
-#define INSUFF_DATA 5
+#define MAX_FILE_SIZE_BYTE 1024LL*1024*1024*2
 
 #define TRIG_DATA_SIZE 16 // words
 
-#define ACQ_STOP -1
+enum ReplyType{
+  INSUFF_DATA = 5,
+  SERVER_SUMMARY = 4
+};
 
-int debug = 0;
+enum ReplyStatus{
+  Insufficent_data = -1,
+  Acq_stopped = -2,
+  No_respone = -3
+};
+
+enum DataStatus{
+  Good,
+  TypeD_RunIsDone,
+  DIG_inComplete,
+  DIG_fileOpenError,
+  TRIG_inComplete,
+  TRIG_fileOpenError,
+  UnknownDataType
+};
+
 int netSocket = -1;
 
 struct gebData{
@@ -26,67 +44,165 @@ struct gebData{
 typedef struct gebData GEBDATA;
 
 uint32_t data[10000];
+
+std::string serverIP = "192.168.203.211";
+int serverPort = 9001;
 std::string runName;
 
 #define MAX_NUM_BOARD 0xFFF
 #define MAX_NUM_CHANNEL 100
-FILE * outFile[MAX_NUM_BOARD][MAX_NUM_CHANNEL]; // save each channel
+class OutFile{
+public:
+  FILE * file;
+  int count;
+  long long fileSize;
+  size_t writeByte;
 
-int GetData(){
+  OutFile(){
+    file = NULL;
+    count = 0;
+    fileSize = 0;
+  }
+  ~OutFile(){
+    fclose(file);
+  }
+
+  int NewFile(std::string extraFileName, int board_id, int ch_id){
+    char outFileName[1000];
+    sprintf (outFileName, "%s_%03i_%4.4i_%01X%s", runName.c_str(), count, board_id, ch_id, extraFileName.c_str());
+    file = fopen(outFileName, "ab");
+    if (!file) {
+      printf("\033[31m Failed to open file (%s) for writing. \033[0m\n", outFileName);
+      return -1;
+    }else{
+      printf("\033[34m Opened %s \033[0m \n", outFileName);
+      return 1;
+    }
+  }
+
+  int OpenFile(std::string extraFileName, int board_id, int ch_id){
+    if( file == NULL){
+      return NewFile(extraFileName, board_id, ch_id);
+    }else{
+      if( fileSize > MAX_FILE_SIZE_BYTE){
+        fclose(file);
+        count ++;
+        fileSize = 0;
+        return NewFile(extraFileName, board_id, ch_id);
+      }
+    }
+    return 0;
+  }
+
+  bool Write(const void* data, size_t size, size_t countToWrite = 1) {
+    if (!file) return false;
+    size_t written = fwrite(data, size, countToWrite, file);
+    writeByte += written * size;
+    fileSize += written * size;
+    return written == countToWrite;
+  }
+
+  size_t GetWrittenByte(){
+    size_t haha = writeByte;
+    writeByte = 0;
+    return haha;
+  }
+
+};
+
+OutFile outFile[MAX_NUM_BOARD][MAX_NUM_CHANNEL]; // save each channel
+uint64_t totalFileSize = 0 ; //byte 
+
+void SetUpConnection(){
+  const int waitSec = 5;
+  struct sockaddr_in server_addr;
+
+  //============ Setup server address struct
+  memset(&server_addr, 0, sizeof(server_addr));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(serverPort);
+  if (inet_pton(AF_INET, serverIP.c_str(), &server_addr.sin_addr) <= 0) {
+    printf("Invalid address/Address not supported\n");
+    return;
+  }
+
+  //============ attemp to estabish connection
+  do{
+    // Create netSocket
+    netSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (netSocket < 0) {
+      printf("netSocket creation failed!\n");
+      return;
+    }
+
+    // Attempt to connect
+    if (connect(netSocket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
+      printf("Connected to server. %s\n", serverIP.c_str());
+      break;
+    } else {
+      printf("Connection failed %s, retrying in %d seconds...\n", serverIP.c_str(), waitSec);
+      close(netSocket);
+      sleep(waitSec);
+      netSocket = -1;
+    }
+  }while(netSocket < 0 );
+
+  // printf("netSocket = %d \n", netSocket);
+
+}
+
+int GetData(){ //return bytes_received.
   int replyType = 0;
   int reply[4]; // 0 = Type, 1 = Record Size in Byte, 2 = Status, 3 = num. of record
-  do{    
-    int request = htonl(1);
-    if( send(netSocket, &request, sizeof(request), 0) < 0 ){
-      printf("fail to send request. retry after 2 sec.\n");
-      sleep(2);
-      continue;
-    }else{
-      if( debug > 0 ) printf("Request sent. ");
+
+  int request = htonl(1);
+  if( send(netSocket, &request, sizeof(request), 0) < 0 ){
+    printf("fail to send request. \n");
+    // printf("fail to send request. retry after 2 sec.\n");
+    // sleep(2);
+    // continue;
+  }else{
+    if( debug > 0 ) printf("Request sent. ");
+  }
+  
+  int bytes_received  = recv(netSocket, ((char *) &reply), sizeof(reply), 0);
+  if (bytes_received > 0) {
+    if( debug > 1){
+      printf("\n");
+      printf("Byte received : %d \n", bytes_received);
+      printf("received data = \n");
+      printf("          Type : %d\n", ntohl(reply[0]) );
+      printf("   Record size : %d Byte\n", ntohl(reply[1]) );
+      printf("        Status : %d\n", ntohl(reply[2]) );
+      printf("   Num. Record : %d\n", ntohl(reply[3]) );
     }
-    
-    int bytes_received = 0;
-    do{
-      bytes_received = recv(netSocket, ((char *) &reply), sizeof(reply), 0);
-      if (bytes_received > 0) {
-        if( debug > 1){
-          printf("\n");
-          printf("Byte received : %d \n", bytes_received);
-          printf("received data = \n");
-          printf("          Type : %d\n", ntohl(reply[0]) );
-          printf("   Record size : %d Byte\n", ntohl(reply[1]) );
-          printf("        Status : %d\n", ntohl(reply[2]) );
-          printf("   Num. Record : %d\n", ntohl(reply[3]) );
-        }
-      } else {
-        printf("No response or connection closed. retry in 1 sec.\n");
-        sleep(1);
-      }
-    }while(bytes_received <= 0);
 
     replyType = ntohl(reply[0]);
+
+    if( replyType == SERVER_SUMMARY){
+      if(debug > 0 ) printf("Server summary.\n");
+    }else if ( replyType == INSUFF_DATA){
+      if(debug > 0 ) printf("Received Insufficient data. \n");
+      return Insufficent_data;
+    }else{
+      printf("No data\n");
+      return Acq_stopped;
+    }    
+
+    int recordByte = ntohl(reply[1]);
+    int numRecord = ntohl(reply[3]);
+
+    int bytes_received = recv(netSocket, data, recordByte * numRecord, 0);
+    int word_received = bytes_received/4;
+    if( debug > 0 ) printf("Received %d bytes = %d words\n", bytes_received, word_received);
+
+    return bytes_received;
+
+  } else {
+    printf("No response or connection closed.\n");
+    return No_respone;
+  }
   
-    if( debug > 0 ) {
-      if( replyType == SERVER_SUMMARY){
-        printf("Server summary.\n");
-      }else if ( replyType == INSUFF_DATA){
-        printf("Received Insufficient data, request again... \n");
-      }else{
-        printf("No data\n");
-        return ACQ_STOP;
-      }
-    }
-    usleep(500000);  // 500,000 microseconds = 0.5 seconds
-  }while( replyType != SERVER_SUMMARY );
-
-  int recordByte = ntohl(reply[1]);
-  int numRecord = ntohl(reply[3]);
-
-  int bytes_received = recv(netSocket, data, recordByte * numRecord, 0);
-  int word_received = bytes_received/4;
-  printf("Received %d bytes = %d words\n", bytes_received, word_received);
-
-  return bytes_received;
 }
 
 int DumpData(int bytes_received){
@@ -106,7 +222,7 @@ int DumpData(int bytes_received){
   return 0;
 }
 
-int WriteData(int bytes_received){
+DataStatus WriteData(int bytes_received){
 
   const int words_received = bytes_received / 4;
   int index = 0;
@@ -135,6 +251,9 @@ int WriteData(int bytes_received){
         printf("\033[34mType %X data encountered (%s). skip.\033[0m\n", ch_id, msg.c_str());
         if( debug > 0 ) for( int i = 0 ; i < 4; i++) printf("%d | 0x%08X\n", index + i, ntohl(data[index+i]));
         index += 4; // Type F data is always 4 words.
+
+        if( ch_id == 0xD ) return TypeD_RunIsDone;
+
         continue;
       }
 
@@ -154,26 +273,15 @@ int WriteData(int bytes_received){
 
       if (packet_length_in_words + index  > words_received){
         printf("\033[31m ERROR. DIG Data. Word received < packet length. \033[0m\n");
-        return -2;
+        return DIG_inComplete;
       }
 
       index += packet_length_in_words + 1; //? not sure
 
-      
-      if ( outFile[board_id][ch_id] == NULL){
-        char outFileName[1000];
-        sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
-        outFile[board_id][ch_id] = fopen(outFileName, "ab");
-        if (!outFile[board_id][ch_id]) {
-          printf("\033[31m Failed to open file (%s) for writing. \033[0m\n", outFileName);
-          return 1;
-        }else{
-          printf("\033[34m Opened %s \033[0m \n", outFileName);
-        }
-      }
-
-      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile[board_id][ch_id]);
-      items_written += fwrite(&data[index], 1, packet_length_in_bytes, outFile[board_id][ch_id]); //todo not sure
+      outFile[board_id][ch_id].OpenFile("", board_id, ch_id);
+      outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      outFile[board_id][ch_id].Write(&data[index], packet_length_in_bytes);
+      totalFileSize += outFile[board_id][ch_id].GetWrittenByte();
     
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
@@ -181,7 +289,7 @@ int WriteData(int bytes_received){
       for( int i = 1; i < TRIG_DATA_SIZE; i++) header[i] = ntohl(data[index+i]);
 
       int ch_id					    = 0x0;
-      int board_id	        = 0xF;
+      int board_id	        =  99;
       int header_type       = 0xE;
       
       int packet_length_in_words  = 10;
@@ -219,28 +327,15 @@ int WriteData(int bytes_received){
 
       if (TRIG_DATA_SIZE + index  > words_received){
         printf("\033[31m ERROR. TRIG DATA. Word received < packet length. \033[0m\n");
-        return -2;
+        return TRIG_inComplete;
       }
 
       index += TRIG_DATA_SIZE;
 
-      if ( outFile[board_id][ch_id] == NULL){
-        char outFileName[1000];
-        sprintf (outFileName, "%s_trig_%4.4i_%01X", runName.c_str() , board_id, ch_id);
-        outFile[board_id][ch_id] = fopen(outFileName, "ab");
-        if (!outFile[board_id][ch_id]) {
-          printf("\033[31m Failed to open file (%s) for writing. \033[0m\n", outFileName);
-          return 1;
-        }else{
-          printf("\033[34m Opened %s \033[0m \n", outFileName);
-        }
-      }
-
-      size_t items_written = fwrite(&GEB_data, 1, sizeof(gebData), outFile[board_id][ch_id]);
-      items_written += fwrite(payload, 1, sizeof(payload), outFile[board_id][ch_id]);
-
-      // fclose(outFile);
-      // printf("Wrote %zu bytes to output.bin\n", items_written);
+      outFile[board_id][ch_id].OpenFile("_trig", board_id, ch_id);
+      outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      outFile[board_id][ch_id].Write(payload, sizeof(payload));
+      totalFileSize += outFile[board_id][ch_id].GetWrittenByte();
 
     }else{
 
@@ -252,71 +347,36 @@ int WriteData(int bytes_received){
       // }while(index < words_received);
 
       DumpData(bytes_received);
-      return -99;
+      return UnknownDataType;
     }
 
     // printf("index : %d | %d\n", index, words_received);
 
   }while(index < words_received);
 
-  //TODO how many byte written to file
-
-  return 0;
+  return Good;
 }
 
 //###############################################################
 int main(int argc, char **argv) {
 
-  if( argc != 2){
-    printf("need a run name.\n");
+  if( argc != 4){
+    printf("usage:\n");
+    printf("%s [IP] [Port] [file_prefix]", argv[0]);
     return -1;
   }
 
-  runName = argv[1];
+  serverIP = argv[1];
+  serverPort = atoi(argv[2]);
+  runName = argv[3];
 
-  for( int i = 0; i < MAX_NUM_BOARD; i++){
-    for( int j = 0; j < MAX_NUM_CHANNEL; j++){
-      outFile[i][j] = NULL;
-    }
-  }
+  SetUpConnection();
 
-  const int waitSec = 5;
+  time_t startTime = time(NULL);
+  time_t lastPrint = startTime;
+  int displayTimeIntevral = 2; //sec
 
-  struct sockaddr_in server_addr;
-
-  //============ Setup server address struct
-  memset(&server_addr, 0, sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(SERVER_PORT);
-  if (inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr) <= 0) {
-    printf("Invalid address/Address not supported\n");
-    return 1;
-  }
-
-  //============ attemp to estabish connection
-  do{
-    // Create netSocket
-    netSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (netSocket < 0) {
-      printf("netSocket creation failed!\n");
-      return 1;
-    }
-
-    // Attempt to connect
-    if (connect(netSocket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
-      printf("Connected to server.\n");
-      break;
-    } else {
-      printf("Connection failed, retrying in %d seconds...\n", waitSec);
-      close(netSocket);
-      sleep(waitSec);
-      netSocket = -1;
-    }
-  }while(netSocket < 0 );
-
-  printf("netSocket = %d \n", netSocket);
-
-  int bytes_received  = 0;
+  DataStatus status = Good;
   do{
     //============ Send request and get data 
     int bytes_received = GetData();
@@ -326,10 +386,20 @@ int main(int argc, char **argv) {
     // }
 
     //============ Write data to file
-    WriteData(bytes_received);
+    if( bytes_received >= 0 ) status = WriteData(bytes_received); // it decodes the data, and save the data for each channel.
 
-  }while(bytes_received != ACQ_STOP);
+    time_t now = time(NULL);
+    if (now - lastPrint >= displayTimeIntevral) { 
+      time_t elapsed = now - startTime;
+      printf("Elapsed: %ld sec | totalFileSize = %llu bytes\n", elapsed, totalFileSize);
+      fflush(stdout);  // Make sure it prints immediately
+      lastPrint = now;
+    }
 
+    sleep(1);
+  }while(status != TypeD_RunIsDone);
+
+  printf("program ended.\n");
   
   // Close netSocket
   close(netSocket);
