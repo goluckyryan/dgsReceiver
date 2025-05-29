@@ -6,8 +6,9 @@
 #include <unistd.h>
 #include <string>
 #include <time.h>
+#include <sys/stat.h>
 
-int debug = 1;
+int debug = 0;
 
 #define MAX_FILE_SIZE_BYTE 1024LL*1024*1024*2
 
@@ -21,6 +22,7 @@ enum ReplyType{
 };
 
 enum ReplyStatus{
+  Fail_to_connect = -4,
   Insufficent_data = -1,
   Acq_stopped = -2,
   No_respone = -3
@@ -60,6 +62,7 @@ public:
   FILE * file;
   int count;
   long long fileSize;
+  char outFileName[1000];
   size_t writeByte;
 
   OutFile(){
@@ -68,11 +71,10 @@ public:
     fileSize = 0;
   }
   ~OutFile(){
-    fclose(file);
+    CloseFile();
   }
 
   int NewFile(std::string extraFileName, int board_id, int ch_id){
-    char outFileName[1000];
     sprintf (outFileName, "%s_%03i_%4.4i_%01X%s", runName.c_str(), count, board_id, ch_id, extraFileName.c_str());
     file = fopen(outFileName, "ab");
     if (!file) {
@@ -89,13 +91,24 @@ public:
       return NewFile(extraFileName, board_id, ch_id);
     }else{
       if( fileSize > MAX_FILE_SIZE_BYTE){
-        fclose(file);
+        CloseFile();
         count ++;
         fileSize = 0;
         return NewFile(extraFileName, board_id, ch_id);
       }
     }
     return 0;
+  }
+
+  void CloseFile(){
+    if ( !file ) return;
+    fclose(file);
+    if (chmod(outFileName, S_IRUSR | S_IRGRP | S_IROTH) == 0) {
+      printf("Closed %s and set to read-only.\n", outFileName);
+    } else {
+      printf("Closed %s but set to read-only fail.\n", outFileName);
+    }
+    fflush(stdout);
   }
 
   bool Write(const void* data, size_t size, size_t countToWrite = 1) {
@@ -167,6 +180,7 @@ int GetData(){ //return bytes_received.
     // printf("fail to send request. retry after 2 sec.\n");
     // sleep(2);
     // continue;
+    return Fail_to_connect;
   }else{
     if( debug > 3 ) printf("Request sent. ");
   }
@@ -398,6 +412,10 @@ int main(int argc, char **argv) {
   serverPort = atoi(argv[2]);
   runName = argv[3];
 
+  #ifdef ENABLE_GEB_HEADER
+  printf("GEB HEADER enabled.\n\n").
+  #endif
+
   SetUpConnection();
 
   time_t startTime = time(NULL);
@@ -416,7 +434,9 @@ int main(int argc, char **argv) {
     time_t now = time(NULL);
     if (now - lastPrint >= displayTimeIntevral) { 
       time_t elapsed = now - startTime;
-      printf("Elapsed: %ld sec | totalFileSize = %llu bytes\n", elapsed, totalFileSize);
+      char* timeStr = ctime(&now);
+      if (timeStr) timeStr[strcspn(timeStr, "\n")] = '\0';  // Remove newline
+      printf(" %6.3f Mbytes | %24s | run Time: %ld sec\n", totalFileSize/1e6, timeStr, elapsed);
       fflush(stdout);  // Make sure it prints immediately
       lastPrint = now;
     }
@@ -424,9 +444,11 @@ int main(int argc, char **argv) {
     // usleep(100*1000);
   }while(status != TypeD_RunIsDone);
 
-  printf("program ended.\n");
+  printf("\033[34mEnd of Run. Closing files...\033[0m\n");
   
   // Close netSocket
   close(netSocket);
+  printf("==================== program ended.\n");
+  
   return 0;
 }

@@ -1,5 +1,6 @@
 CC=g++
 CFLAG= -O3 -Wall -Wextra
+# CFLAG= -g -Wall -Wextra
 
 all: dgsReceiver_Ryan dgsReceiver tcp_Receiver
 

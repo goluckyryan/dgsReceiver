@@ -179,7 +179,7 @@ char fn[512];
 int64_t totbytes = 0;
 int8_t has_connected = 0;
 
-int32_t debug = 1;
+int32_t debug = 0;
 
 #ifdef WRITEGTFORMAT
 	int32_t GEB_TYPE_DGS = 0;
