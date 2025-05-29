@@ -348,20 +348,20 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
     if (debug > 0) printf ("have socket ?  %d \n", instance->recSock);
 
 		// MBO 20200616: Let's try queueing up 6 requests:
-		/*
-		for( int i = 0; i < 5; i++){
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
-				printf ("request send failed\n");
-				close (instance->recSock);
-				instance->recSock = -1;
-				return -1;
-			}			
-		}*/
+		
+		// for( int i = 0; i < 5; i++){
+		// 	request.type = htonl (CLIENT_REQUEST_EVENTS);
+		// 	if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
+		// 		printf ("request send failed\n");
+		// 		close (instance->recSock);
+		// 		instance->recSock = -1;
+		// 		return -1;
+		// 	}			
+		// }
 
 		request.type = htonl (CLIENT_REQUEST_EVENTS);
     // send data to the netwrok socket
-		if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
+		if (write (instance->recSock, (char*)&request, sizeof (struct reqPacket)) < 0){
 			printf ("request send failed\n");
 			close (instance->recSock);
 			instance->recSock = -1;
@@ -417,7 +417,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 		/* ask for the next data */
 		request.type = htonl (CLIENT_REQUEST_EVENTS);
 
-		if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0){
+		if (write (instance->recSock, (char*)&request, sizeof (struct reqPacket)) < 0){
 			printf ("request send failed\n");
 			close (instance->recSock);
 			instance->recSock = -1;
@@ -458,6 +458,8 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 
 	//deg recsize is total bytes to read.. not size of one rec.
 	numbytesleft = recsize;
+
+  if (debug > 0) printf ("there is data to be read-numbytesleft =%d \n", numbytesleft);
 
 	bytesret = 0;
 	while (bytesret < numbytesleft){
@@ -790,9 +792,9 @@ void close_board (int32_t board_num){
 
   int32_t j;
 
-	printf ("\n\nEnd of data packet received for board #%i at ", board_num);
+	printf ("\n\n \033[31m End of data packet received for board #%i at ", board_num);
 	ticks = time (NULL);
-	printf ("%.24s\n", ctime (&ticks));
+	printf ("%.24s\n \033[0m", ctime (&ticks));
 	fflush (stdout);
 
 
