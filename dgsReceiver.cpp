@@ -246,7 +246,7 @@ char fn[512];
 int64_t totbytes = 0;
 int8_t has_connected = 0;
 
-int32_t receiver_trace = 0;
+int32_t debug = 1;
 
 #ifdef WRITEGTFORMAT
 	int32_t GEB_TYPE_DGS = 0;
@@ -399,7 +399,7 @@ initReceiver (char *srvr_addr)
 	struct rcvrInstance *retval;
 	int32_t port;
 
-	if (receiver_trace > 0)
+	if (debug > 0)
 		printf ("initReceiver\n");
 
 	port = SERVER_PORT;
@@ -441,7 +441,7 @@ stopReceiver (char *instancechar)
 {
 	struct rcvrInstance *instance;
 
-	if (receiver_trace > 0)
+	if (debug > 0)
 		printf ("stopReceiver\n");
 
 	instance = (struct rcvrInstance *) instancechar;
@@ -478,9 +478,7 @@ void setsocketoption(int32_t sock)
 
 /*----------------------------------------------------------------------*/
 
-int32_t
-getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize)
-{
+int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize) {
 
 	struct rcvrInstance *instance;
 	struct reqPacket request;
@@ -492,261 +490,210 @@ getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize)
 	int32_t numret = 0;
 	int32_t numbytesleft;
 	uint32_t i;
-	if (receiver_trace > 0)
-		printf ("getReceiverData2\n");
+	if (debug > 2) printf ("getReceiverData2\n");
 
 
 	instance = (struct rcvrInstance *) instancechar;
-	if (!instance)
-		{
-			printf ("Null receiver instance in getReceiverData\n");
-			return -1;
+	if (!instance){
+        printf ("Null receiver instance in getReceiverData\n");
+        return -1;
+    }
+
+	if (instance->recSock == -1){
+
+        instance->recSock = socket (AF_INET, SOCK_STREAM, 0);
+
+
+        if (instance->recSock == -1){
+            printf ("Unable to open socket.\n");
+            return -1;
+        }
+
+        setsocketoption(instance->recSock);
+
+        if (connect (instance->recSock, (struct sockaddr *) &instance->adr_srvr, instance->len_inet) < 0){
+            if (has_connected == 1) printf ("connect failed %s\n", strerror (errno));
+            close (instance->recSock);
+            instance->recSock = -1;
+            return -1;
+        }
+
+        // MBO 20200616: Let's try queueing up 6 requests:
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }else{
+                if (debug > 0) {
+                    printf (" sent request data=");
+                    for(i=0; i < (sizeof (struct reqPacket)); i++)
+                        printf ("%02X ", ((char *) &request)[i]);
+                    printf ("\n");
+                }
+            }
 		}
 
-	if (instance->recSock == -1)
-		{
+	while (bytesret < (int32_t)(sizeof (evtServerRetStruct))){
+		//	if (debug > 0)
+        //	 printf ("to read socket\n");
 
-			instance->recSock = socket (AF_INET, SOCK_STREAM, 0);
+        #ifndef __WIN32__
+        numret = read (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret);
+        #else
+        numret = recv (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret, 0);
+        #endif
+        if (numret <= 0){
+            if (debug > 0)printf ("Error, no more data: need: %d total: %d\n", (int32_t)(sizeof (evtServerRetStruct)) - (int32_t)(bytesret), (uint32_t)(sizeof (evtServerRetStruct)));
+            break;
+        }else{
+            bytesret += numret;
 
+            if (debug > 2){
+                printf ("received bytes=%d\n", numret);
+                printf ("received data=");
+                for(i=0;i < (sizeof (struct reqPacket)); i++)
+                    printf ("%02X ", (((char*)((void *)(&firstreply.type))) + bytesret)[i]);
+                printf ("\n");
+            }
 
-			if (instance->recSock == -1)
-				{
-					printf ("Unable to open socket.\n");
-					return -1;
-				}
-
-			setsocketoption(instance->recSock);
-
-			if (connect (instance->recSock, (struct sockaddr *) &instance->adr_srvr, instance->len_inet) < 0)
-				{
-					if (has_connected == 1) printf ("connect failed %s\n", strerror (errno));
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-
-				// MBO 20200616: Let's try queueing up 6 requests:
-/**/			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			else
-				{
-					if (receiver_trace > 0) {
-						printf (" sent request data=");
-						for(i=0; i < (sizeof (struct reqPacket)); i++)
-							printf ("%02X ", ((char *) &request)[i]);
-						printf ("\n");
-					}
-				}
-		}
-
-	if (receiver_trace > 0)
-		printf ("have socket \n");
+        }
+    }
 
 
-	while (bytesret < (int32_t)(sizeof (evtServerRetStruct)))
-		{
-		//	if (receiver_trace > 0)
-		 //	 printf ("to read socket\n");
+	if (numret <= 0){
+        printf ("read returned %d\n", numret);
+        return -1;
+    }
 
-            #ifndef __WIN32__
-			numret = read (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret);
-			#else
-			numret = recv (instance->recSock, ((char *) &firstreply.type) + bytesret, sizeof (evtServerRetStruct) - bytesret, 0);
-			#endif
-			if (numret <= 0)
-				{
-					if (receiver_trace > 0)
-						printf ("Error, no more data: need: %d total: %d\n", (int32_t)(sizeof (evtServerRetStruct)) - (int32_t)(bytesret), (uint32_t)(sizeof (evtServerRetStruct)));
-					break;
-				}
-			else
-				{
-					bytesret += numret;
+    temptype = ntohl (firstreply.type) & 0x000000FF;
 
-					if (receiver_trace > 0)
-					{
-						printf ("received bytes=%d\n", numret);
-						printf ("received data=");
-						for(i=0;i < (sizeof (struct reqPacket)); i++)
-							printf ("%02X ", (((char*)((void *)(&firstreply.type))) + bytesret)[i]);
-						printf ("\n");
-					 }
+	if (temptype == SERVER_SUMMARY){
 
-				}
-		}
+        if (debug > 0) printf ("SERVER_SUMMARY | socket %d \n", instance->recSock);
+
+        // for dgs- this is total size of data to get. not size of each indiv. record.
+        recsize = ntohl (firstreply.recLen);
+        numrecs = ntohl (firstreply.recs);
+
+        if (debug > 0) printf ("recsize =%d numrecs =%d\n", recsize, numrecs);
 
 
-	if (numret <= 0)
-		{
-			printf ("read returned %d\n", numret);
-			return -1;
-		}
-	temptype = ntohl (firstreply.type) & 0x000000FF;
-
-	if (temptype == SERVER_SUMMARY)
-		{
+        /* ask for the next data */
+        request.type = htonl (CLIENT_REQUEST_EVENTS);
 
 
-			if (receiver_trace > 0)
-				printf ("SERVER_SUMMARY \n");
+    #ifndef __WIN32__
+        if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+    #else
+        if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+    #endif
+        {
+            printf ("request send failed\n");
+            close (instance->recSock);
+            instance->recSock = -1;
+            return -1;
+        }
+    }else{
+        if (temptype == INSUFF_DATA){
 
-			// for dgs- this is total size of data to get. not size of each indiv. record.
-			recsize = ntohl (firstreply.recLen);
-			numrecs = ntohl (firstreply.recs);
+            if (debug > 2) printf ("received INSUFF_DATA\n");
 
-			if (receiver_trace > 0)
-				printf ("recsize =%d numrecs =%d\n", recsize, numrecs);
+            /* go ahead and ask again */
+            request.type = htonl (CLIENT_REQUEST_EVENTS);
+        #ifndef __WIN32__
+            if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
+        #else
+            if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
+        #endif
+            {
+                printf ("request send failed\n");
+                close (instance->recSock);
+                instance->recSock = -1;
+                return -1;
+            }
+            return -1;
+        }else{
+            /* No point in asking for more; we arecsize =16re bailing out */
+            if (temptype == SERVER_SENDER_OFF){
+                if (debug > 0) printf ("temptype == SERVER_SENDER_OFF\n");
+            }else{
+                printf ("Illegal first packet type %d\n", temptype);
+            }
 
+            if (debug > 0) printf ("to close socket\n");
 
-			/* ask for the next data */
-			request.type = htonl (CLIENT_REQUEST_EVENTS);
-
-
-            #ifndef __WIN32__
-			if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-            #else
-			if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-            #endif
-				{
-					printf ("request send failed\n");
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-			else
-				{
-					if (receiver_trace > 0)
-						printf ("requested CLIENT_REQUEST_EVENTS \n");
-
-
-				}
-		}
-	else
-		{
-			if (temptype == INSUFF_DATA)
-				{
-
-					if (receiver_trace > 0)
-						printf ("received INSUFF_DATA\n");
-
-					/* go ahead and ask again */
-					request.type = htonl (CLIENT_REQUEST_EVENTS);
-                    #ifndef __WIN32__
-                    if (write (instance->recSock, &request, sizeof (struct reqPacket)) < 0)
-                    #else
-                    if (send (instance->recSock, (char*)&request, sizeof (struct reqPacket), 0) < 0)
-                    #endif
-						{
-							printf ("request send failed\n");
-							close (instance->recSock);
-							instance->recSock = -1;
-							return -1;
-						}
-					else
-						{
-							if (receiver_trace > 0)
-								printf ("sent CLIENT_REQUEST_EVENTS\n");
-
-						}
-					return -1;
-				}
-			else
-				{
-					/* No point in asking for more; we arecsize =16re bailing out */
-					if (temptype == SERVER_SENDER_OFF)
-						{
-
-							if (receiver_trace > 0)
-								printf ("temptype == SERVER_SENDER_OFF\n");
-
-/*
-						printf("Sender not enabled\n");
-*/
-						}
-					else
-						{
-							printf ("Illegal first packet type %d\n", temptype);
-						}
-
-					if (receiver_trace > 0)
-						printf ("to close socket\n");
-
-
-					close (instance->recSock);
-					instance->recSock = -1;
-					return -1;
-				}
-		}
+            close (instance->recSock);
+            instance->recSock = -1;
+            return -1;
+        }
+    }
 
 	/* if you got here, there is data to be read */
 //!!
@@ -755,49 +702,41 @@ getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize)
 //deg recsize is total butes to read.. not size of one rec.
 	numbytesleft = recsize;
 
-	if (receiver_trace > 0)
-		printf ("there is data to be read-numbytesleft =%d \n", numbytesleft);
+	if (debug > 0) printf ("there is data to be read-numbytesleft =%d \n", numbytesleft);
 
 	bytesret = 0;
-	while (bytesret < numbytesleft)
-		{
+	while (bytesret < numbytesleft){
 
-	//		if (receiver_trace > 0)
+	//		if (debug > 0)
 	 //		 printf ("to read data \n");
-            #ifndef __WIN32__
-			numret = read (instance->recSock, datamem + bytesret, numbytesleft - bytesret);
-			#else
-			numret = recv (instance->recSock, (char*)(datamem + bytesret), numbytesleft - bytesret, 0);
-			#endif
+    #ifndef __WIN32__
+        numret = read (instance->recSock, datamem + bytesret, numbytesleft - bytesret);
+    #else
+        numret = recv (instance->recSock, (char*)(datamem + bytesret), numbytesleft - bytesret, 0);
+    #endif
 
+        if (debug > 0) printf ("got %d bytes	\n", numret);
 
-			if (receiver_trace > 0)
-				printf ("got %d bytes	\n", numret);
+        if (numret <= 0){
+            break;
+        } else{
+            bytesret += numret;
+            instance->bytesrec += bytesret;
+            instance->packetsreceived++;
+        }
+    }
 
-			if (numret <= 0)
-				{
-					break;
-				}
-			else
-				{
-					bytesret += numret;
-					instance->bytesrec += bytesret;
-					instance->packetsreceived++;
-				}
-		}
-
-	if (numret == 0)
-		{
-			printf (" End of file! \n");
-			close (instance->recSock);
-			instance->recSock = -1;
-			return -1;
-		}
-	if (numret < 0)
-		{
-			printf ("read returned %d\n", numret);
-			return -1;
-		}
+	if (numret == 0){
+        printf (" End of file! \n");
+        close (instance->recSock);
+        instance->recSock = -1;
+        return -1;
+    }
+	
+    if (numret < 0){
+        printf ("read returned %d\n", numret);
+        return -1;
+    }
 
 	*retptr = datamem;
 	*readsize = recsize;
@@ -1349,9 +1288,9 @@ void close_board (int32_t board_num)
 		int32_t j;
 	#endif
 
-	printf ("\n\nEnd of data packet received for board #%i at ", board_num);
+	printf ("\n\n \033[31mEnd of data packet received for board #%i at ", board_num);
 	ticks = time (NULL);
-	printf ("%.24s\n", ctime (&ticks));
+	printf ("%.24s\n \033[0m", ctime (&ticks));
 	fflush (stdout);
 
 	#ifdef SINGLE_FILE
@@ -1546,7 +1485,7 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 
 	*writtenBytes = 0;
 
-	if (receiver_trace > 0)
+	if (debug > 0)
 		{
 			printf ("entered writeEvents2, size2write=%i\n", size2write);
 			fflush (stdout);
@@ -1554,20 +1493,14 @@ writeEvents2 (int8_t *buffer, int32_t size2write, int32_t *writtenBytes)
 
 
 
-	if (!buffer)
-		return -3;
-
-
-	if (receiver_trace > 0)
-		printf ("buffer ok\n");
+	if (!buffer) return -3;
 
 
 	//here evtlen in dgs means len of all events in bytes
 	buffer_size = size2write;
 
 
-	if (receiver_trace > 0)
-		printf ("to write %d bytes to ptr %p \n", buffer_size, buffer);
+	if (debug > 0) printf ("to write %d bytes from ptr %p \n", buffer_size, buffer);
 
 
 	/* intercept the data and write it out */
@@ -2361,10 +2294,10 @@ main (int32_t argc, char **argv)
 
 	#ifdef WRITEGTFORMAT
 	if (argc == 7)
-		receiver_trace = 1;
+		debug = 1;
 	#else
 	if (argc == 6)
-		receiver_trace = 1;
+		debug = 1;
 	#endif
 
 	#ifdef WRITEGTFORMAT

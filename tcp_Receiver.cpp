@@ -13,6 +13,8 @@ int debug = 1;
 
 #define TRIG_DATA_SIZE 16 // words
 
+// #define ENABLE_GEB_HEADER
+
 enum ReplyType{
   INSUFF_DATA = 5,
   SERVER_SUMMARY = 4
@@ -36,12 +38,14 @@ enum DataStatus{
 
 int netSocket = -1;
 
-struct gebData{
-	int32_t type;										 /* type of data following */
-	int32_t length;
-	uint64_t timestamp;
-};
-typedef struct gebData GEBDATA;
+#ifdef ENABLE_GEB_HEADER
+  struct gebData{
+    int32_t type;										 /* type of data following */
+    int32_t length;
+    uint64_t timestamp;
+  };
+  typedef struct gebData GEBDATA;
+#endif
 
 uint32_t data[10000];
 
@@ -164,7 +168,7 @@ int GetData(){ //return bytes_received.
     // sleep(2);
     // continue;
   }else{
-    if( debug > 0 ) printf("Request sent. ");
+    if( debug > 3 ) printf("Request sent. ");
   }
   
   int bytes_received  = recv(netSocket, ((char *) &reply), sizeof(reply), 0);
@@ -182,9 +186,9 @@ int GetData(){ //return bytes_received.
     replyType = ntohl(reply[0]);
 
     if( replyType == SERVER_SUMMARY){
-      if(debug > 0 ) printf("Server summary.\n");
+      if(debug > 3 ) printf("Server summary.\n");
     }else if ( replyType == INSUFF_DATA){
-      if(debug > 0 ) printf("Received Insufficient data. \n");
+      if(debug > 3 ) printf("Received Insufficient data. \n");
       return Insufficent_data;
     }else{
       printf("No data\n");
@@ -194,11 +198,16 @@ int GetData(){ //return bytes_received.
     int recordByte = ntohl(reply[1]);
     int numRecord = ntohl(reply[3]);
 
-    int bytes_received = recv(netSocket, data, recordByte * numRecord, 0);
-    int word_received = bytes_received/4;
-    if( debug > 0 ) printf("Received %d bytes = %d words\n", bytes_received, word_received);
+    int total_bytes_received = 0;
 
-    return bytes_received;
+    do{
+      int bytes_received = recv(netSocket, &data[total_bytes_received/4], recordByte * numRecord, 0);
+      int word_received = bytes_received/4;
+      total_bytes_received += bytes_received;
+      if( debug > 0 ) printf("Received %d bytes = %d words | total received %d Bytes, Record size %d bytes\n", bytes_received, word_received, total_bytes_received, recordByte*numRecord);
+    }while(total_bytes_received < recordByte * numRecord);
+
+    return total_bytes_received;
 
   } else {
     printf("No response or connection closed.\n");
@@ -222,6 +231,13 @@ int DumpData(int bytes_received){
   printf("Wrote %zu bytes to output.bin | received %d bytes\n", items_written, bytes_received);
   
   return 0;
+}
+
+void PrintData(int startIndex, int endIndex){
+  printf("------ data:\n");
+  for( int i = startIndex; i <= endIndex ; i++){
+    printf("%-6d | 0x%08X\n", i, data[i]);
+  }
 }
 
 DataStatus WriteData(int bytes_received){
@@ -261,27 +277,33 @@ DataStatus WriteData(int bytes_received){
 
       int board_id 			          = (header[0] & 0x0000FFF0) >> 4;	// Word 1: 15..4
       int packet_length_in_words	= (header[0] & 0x07FF0000) >> 16;	// Word 1: 26..16
-      int timestamp_lower 		    = (header[1] & 0xFFFFFFFF) >> 0;	// Word 2: 31..0
-      int timestamp_upper 		    = (header[2] & 0x0000FFFF) >> 0;	// Word 3: 15..0
-      // int header_type				      = (header[2] & 0x000F0000) >> 16;	// Word 3: 19..16
+      
+      #ifdef ENABLE_GEB_HEADER
+        int timestamp_lower 		    = (header[1] & 0xFFFFFFFF) >> 0;	// Word 2: 31..0
+        int timestamp_upper 		    = (header[2] & 0x0000FFFF) >> 0;	// Word 3: 15..0
+        // int header_type				      = (header[2] & 0x000F0000) >> 16;	// Word 3: 19..16
+        int packet_length_in_bytes	= packet_length_in_words * 4;
 
-      int packet_length_in_bytes	= packet_length_in_words * 4;
-
-      gebData GEB_data;
-      GEB_data.type = 0;
-      GEB_data.length = packet_length_in_bytes;
-      GEB_data.timestamp  = ((uint64_t)(timestamp_upper)) << 32;
-      GEB_data.timestamp |=  (uint64_t)(timestamp_lower);
+        gebData GEB_data;
+        GEB_data.type = 0;
+        GEB_data.length = packet_length_in_bytes;
+        GEB_data.timestamp  = ((uint64_t)(timestamp_upper)) << 32;
+        GEB_data.timestamp |=  (uint64_t)(timestamp_lower);
+      #endif
 
       if (packet_length_in_words + index  > words_received){
         printf("\033[31m ERROR. DIG Data. Word received < packet length. \033[0m\n");
+        PrintData(index, words_received-1);
         return DIG_inComplete;
       }
-
+      
       index += packet_length_in_words + 1; //? not sure
+      int packet_length_in_bytes	= packet_length_in_words * 4; 
 
       outFile[board_id][ch_id].OpenFile("", board_id, ch_id);
-      outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      #ifdef ENABLE_GEB_HEADER
+        outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      #endif
       outFile[board_id][ch_id].Write(&data[index], packet_length_in_bytes);
       totalFileSize += outFile[board_id][ch_id].GetWrittenByte();
     
@@ -295,16 +317,15 @@ DataStatus WriteData(int bytes_received){
       int header_type       = 0xE;
       
       int packet_length_in_words  = 10;
-      int packet_length_in_bytes	= packet_length_in_words * 4;
-
-      int payload[11];
+      
+      int payload[10];
 
       payload[0] = 0xAAAAAAAA;
       
       payload[1]  = ch_id;
       payload[1] |= board_id << 4;
       payload[1] |= packet_length_in_words << 16;  // always 8 words payload
-
+      
       payload[2]  = header[4]   ;
       payload[2] |= header[3]  << 16;
       
@@ -312,30 +333,35 @@ DataStatus WriteData(int bytes_received){
       payload[3] |= header_type  << 16; // header_type
       //payload[3] |= 0x0  << 23; // event_type
       payload[3] |= 3 << 26;
-
+      
       payload[4] = (header[ 1] << 16) + header[ 5];
       payload[5] = (header[ 6] << 16) + header[ 7];
       payload[6] = (header[ 8] << 16) + header[ 9];
       payload[7] = (header[10] << 16) + header[11];
       payload[8] = (header[12] << 16) + header[13];
       payload[9] = (header[14] << 16) + header[15];
-
-      gebData GEB_data;
-      GEB_data.type = 0;
-      GEB_data.length = packet_length_in_bytes;
-      GEB_data.timestamp  = ((uint64_t)(header[2])) << 32;
-      GEB_data.timestamp |= ((uint64_t)(header[3])) << 16;
-      GEB_data.timestamp |=  (uint64_t)(header[4]);
+      
+      #ifdef ENABLE_GEB_HEADER
+        gebData GEB_data;
+        GEB_data.type = 0;
+        GEB_data.length = packet_length_in_bytes;
+        GEB_data.timestamp  = ((uint64_t)(header[2])) << 32;
+        GEB_data.timestamp |= ((uint64_t)(header[3])) << 16;
+        GEB_data.timestamp |=  (uint64_t)(header[4]);
+      #endif
 
       if (TRIG_DATA_SIZE + index  > words_received){
         printf("\033[31m ERROR. TRIG DATA. Word received < packet length. \033[0m\n");
+        PrintData(index, words_received-1);
         return TRIG_inComplete;
       }
 
       index += TRIG_DATA_SIZE;
 
       outFile[board_id][ch_id].OpenFile("_trig", board_id, ch_id);
-      outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      #ifdef ENABLE_GEB_HEADER
+        outFile[board_id][ch_id].Write(&GEB_data, sizeof(gebData));
+      #endif
       outFile[board_id][ch_id].Write(payload, sizeof(payload));
       totalFileSize += outFile[board_id][ch_id].GetWrittenByte();
 
@@ -395,7 +421,7 @@ int main(int argc, char **argv) {
       lastPrint = now;
     }
 
-    sleep(1);
+    // usleep(100*1000);
   }while(status != TypeD_RunIsDone);
 
   printf("program ended.\n");

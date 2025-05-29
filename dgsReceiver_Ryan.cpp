@@ -318,7 +318,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 	int32_t numrecs = 0;
 	int32_t numret = 0;
 	int32_t numbytesleft;
-	if (debug > 0)	printf ("##### %s\n", __func__);
+	if (debug > 2)	printf ("##### %s\n", __func__);
 
 	instance = (struct rcvrInstance *) instancechar;
 	if (!instance){
@@ -367,7 +367,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 			instance->recSock = -1;
 			return -1;
 		}else{
-			if (debug > 0) {
+			if (debug > 2) {
 				printf (" sent request data=");
 				for(unsigned int i=0; i < (sizeof (struct reqPacket)); i++){
 					printf ("%02X ", ((char *) &request)[i]);
@@ -385,7 +385,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 			break;
 		}else{
       bytesret += numret;
-			if (debug > 0){
+			if (debug > 2){
         printf ("received bytes=%d, bytesret=%d | %d\n", numret, bytesret, (int32_t)(sizeof (evtServerRetStruct)));
 				printf ("received data=");
 				for(unsigned int i=0;i < (sizeof (struct reqPacket)); i++){
@@ -402,7 +402,7 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 	}
 	temptype = ntohl (firstreply.type) & 0x000000FF;
 
-  if (debug > 0 ) printf( "firstreply | 0x%08X -> 0x%08X, temptype %d\n", firstreply.type, ntohl(firstreply.type), temptype);
+  if (debug > 2 ) printf( "firstreply | 0x%08X -> 0x%08X, temptype %d\n", firstreply.type, ntohl(firstreply.type), temptype);
 	
 	if (temptype == SERVER_SUMMARY){
     // for dgs- this is total size of data to get. not size of each indiv. record.
@@ -422,12 +422,10 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 			close (instance->recSock);
 			instance->recSock = -1;
 			return -1;
-		}else{
-			if (debug > 0) printf ("requested CLIENT_REQUEST_EVENTS \n");
 		}
 
 	}else if (temptype == INSUFF_DATA){
-    if (debug > 0) printf ("received INSUFF_DATA\n");
+    if (debug > 2) printf ("received INSUFF_DATA\n");
 
     /* go ahead and ask again */
     request.type = htonl (CLIENT_REQUEST_EVENTS);
@@ -436,8 +434,6 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
       close (instance->recSock);
       instance->recSock = -1;
       return -1;
-    }else{
-      if (debug > 0) printf ("sent CLIENT_REQUEST_EVENTS\n");
     }
     return -1;
   }else{
@@ -462,8 +458,6 @@ int32_t getReceiverData2 (char *instancechar, int8_t **retptr, int32_t *readsize
 
 	//deg recsize is total bytes to read.. not size of one rec.
 	numbytesleft = recsize;
-
-	if (debug > 0) printf ("there is data to be read-numbytesleft =%d \n", numbytesleft);
 
 	bytesret = 0;
 	while (bytesret < numbytesleft){
@@ -518,7 +512,7 @@ int32_t printPackets (char *instancechar){
 
 int32_t print_info (int64_t totbytes){
 
-	printf("#### %s\n", __func__);
+	// printf("#### %s\n", __func__);
 	/* declarations */
 
 	static int64_t last_totbytes = 0;
@@ -1463,7 +1457,6 @@ int main (int32_t argc, char **argv){
 	while (1){
 		/* get a data buffer */
 		st = getReceiverData2 (Receiver, &input1, &num_bytes_read);
-
 		/* if we failed x.1_000delay, else */
 		/* write buffer to disk */
 
@@ -1481,8 +1474,8 @@ int main (int32_t argc, char **argv){
 						print_info (totbytes);
 					}else{
 						puts("waiting for connection...\n");
-						tthen = tnow;
 					}
+          tthen = tnow;
 				};
 			};
 

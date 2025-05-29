@@ -93,7 +93,7 @@ inline void Reader::openFile(std::string fileName){
 
 inline int ReadNextBlock(bool fastRead, bool debug){
   
-
+  
 }
 
 
