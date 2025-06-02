@@ -17,8 +17,81 @@ public:
   uint16_t energy;
   uint64_t timestamp;
 
+  //TAC-II data
+  uint16_t trigType;
+  uint16_t wheel;
+  uint16_t multiplicity;
+  uint16_t userRegister;
+  uint16_t coarseTS;
+  uint16_t triggerBitMask;
+  uint16_t tdcOffset[4];
+  uint16_t vernierAB;
+  uint16_t vernierCD;
+
+  uint8_t prePhase[4] = {3,0, 1, 2};
+
+
   void Print(){
     printf("Board : %u, Channel : %u, Energy : %u, Time : %lu\n", board, channel, energy, timestamp);
+  }
+
+  void FillTAC(uint32_t * data){
+    board = 99;
+    channel = 0;
+    timestamp = (((uint64_t) data[1]) << 16) + ( data[2] & 0xFFFF);
+
+    trigType     = data[3] >> 16; wheel          = data[3] & 0xFFFF;
+    multiplicity = data[4] >> 16; userRegister   = data[4] & 0xFFFF;
+    coarseTS     = data[5] >> 16; triggerBitMask = data[5] & 0xFFFF; 
+    tdcOffset[0] = data[6] >> 16; tdcOffset[1]   = data[6] & 0xFFFF; 
+    tdcOffset[2] = data[7] >> 16; tdcOffset[3]   = data[7] & 0xFFFF; 
+    vernierAB    = data[8] >> 16; vernierCD      = data[8] & 0xFFFF; 
+
+  }
+  
+  double CalTAC(bool debug = false){
+    
+    int tdcRef = (coarseTS * 10) % 65536;
+
+    uint16_t validMask = 0;
+    for( int i = 0 ; i < 4; i++){
+      int check =  tdcRef - ( tdcOffset[i] * 4) % 65536;
+      printf("check-%d | %d \n", i, check);
+      if( 0 < check && check < 350 ) validMask += (1 << i); 
+    }
+
+    if( debug) printf("Valid Mask %X \n", validMask);
+
+    int vernier[4];
+    double offset[4];
+
+    uint8_t validBit = (vernierAB >> 12) & 0xF;
+    vernier[0] =  vernierAB & 0x3F;
+    vernier[1] = (vernierAB >> 6) & 0x3F;
+    vernier[2] =  vernierCD & 0x3F;
+    vernier[3] = (vernierCD >> 6) & 0x3F;
+
+    if( debug) printf("VernierAB : 0x%04X => Valid 0x%X \n", vernierAB, validBit);
+    int validCount = 0;
+    double avgOffset = 0;
+    for( int i = 0; i < 4; i++){
+      if( debug) printf("Vernier-%d : 0x%02X = %d | offset : 0x%X = %d\n", i, vernier[i], vernier[i], tdcOffset[i], tdcOffset[i]);
+      if( ((validBit >> i) & 0x1 ) && ((validMask >> i) & 0x1 )  ){
+        offset[i] = tdcOffset[i] * 4 + prePhase[i] - 0.05 * vernier[i] ;
+        validCount ++;
+        avgOffset += offset[i];
+      }else{
+        offset[i] = 0;
+        if( debug) printf("      offset %d  is not valid\n", i);
+      }
+    }
+
+    // average of the offset
+    avgOffset /= validCount;
+    if( debug) printf("average offset : %.3f ns\n", avgOffset); 
+
+    return avgOffset; // ns
+
   }
 
 };
@@ -33,6 +106,7 @@ private:
 
   unsigned int iBlock;
   std::vector<unsigned int> blockPos;
+  bool isEndOfFile;
 
   void init();
 
@@ -61,7 +135,8 @@ void Reader::init(){
   
   iBlock = 0;
   blockPos.clear();
-  
+  isEndOfFile = false;
+
   hit = new Hit();
 
 }
@@ -88,14 +163,84 @@ inline void Reader::openFile(std::string fileName){
     fseek(inFile, 0L, SEEK_END);
     inFileSize = ftell(inFile);
     rewind(inFile);
+    isEndOfFile = false;
   }
 }
 
-inline int ReadNextBlock(bool fastRead, bool debug){
-  
-  
+inline int Reader::ReadNextBlock(bool fastRead, bool debug){
+  if( !inFile ) return -1;
+  if( isEndOfFile ) return -10;
+
+  uint32_t word;
+
+  int dummy = fread(&word, sizeof(word), 1, inFile);
+
+  if( word != 0xAAAAAAAA ) {
+    printf("header problem. stop. %08X, filePos : %ld, word-index : %ld\n", word, ftell(inFile), ftell(inFile)/4);
+    return -1;
+  }
+
+  if( word == 0xAAAAAAAA ){
+    if( fastRead ){
+      
+      fseek( inFile, 9*sizeof(uint32_t), SEEK_CUR);
+      if( debug ) printf("Skip.\n");
+
+    }else{
+
+      uint32_t data[9];
+
+      dummy = fread(data, sizeof(uint32_t), 9, inFile);
+
+      if( debug ) for( int i = 0; i < 9; i++) printf("%d | 0x%08X\n", i, data[i]);
+
+      hit->FillTAC(data);
+      hit->CalTAC(true);
+
+    }
+  }
+
+  filePos = ftell(inFile);
+  isEndOfFile = false;
+  if( filePos >= inFileSize ) isEndOfFile = true;
+  iBlock ++;
+ 
+  return 0;
 }
 
+inline int Reader::ReadBlock(unsigned int index, bool verbose){
+  if( totNumBlock == 0 ) return -1;
+  if( index >= totNumBlock ) return -1;
+  if( isEndOfFile ) return -10;
 
+  fseek(inFile, 0L, SEEK_SET);
+
+  fseek(inFile, blockPos[index], SEEK_CUR);
+  iBlock = index;
+  return ReadNextBlock(0, verbose);
+}
+
+inline void Reader::ScanNumBlock(){
+  if( !inFile ) return;
+
+  fseek(inFile, 0L, SEEK_CUR);
+  totNumBlock = 0;
+  blockPos.clear();
+
+  filePos = 0;
+  blockPos.push_back(filePos);
+
+  while(ReadNextBlock(1, 0) == 0){
+    blockPos.push_back(filePos);
+    totNumBlock ++;    
+  }
+
+  printf("\nScan complete: number of data Block : %u\n", totNumBlock);
+  printf("\n");
+
+  fseek(inFile, 0L, SEEK_CUR);
+  isEndOfFile = false;
+
+}
 
 #endif

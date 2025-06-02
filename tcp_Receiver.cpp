@@ -8,7 +8,7 @@
 #include <time.h>
 #include <sys/stat.h>
 
-int debug = 0;
+int debug = 1;
 
 #define MAX_FILE_SIZE_BYTE 1024LL*1024*1024*2
 
@@ -133,7 +133,7 @@ OutFile outFile[MAX_NUM_BOARD][MAX_NUM_CHANNEL]; // save each channel
 uint64_t totalFileSize = 0 ; //byte 
 
 void SetUpConnection(){
-  const int waitSec = 5;
+  const double waitSec = 0.1;
   struct sockaddr_in server_addr;
 
   //============ Setup server address struct
@@ -146,6 +146,7 @@ void SetUpConnection(){
   }
 
   //============ attemp to estabish connection
+  int retryCount = 0;
   do{
     // Create netSocket
     netSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -159,10 +160,11 @@ void SetUpConnection(){
       printf("Connected to server. %s\n", serverIP.c_str());
       break;
     } else {
-      printf("Connection failed %s, retrying in %d seconds...\n", serverIP.c_str(), waitSec);
+      if( retryCount == 0 ) printf("Connection failed %s, retrying in %.2f seconds... (retry will not display)\n", serverIP.c_str(), waitSec);
       close(netSocket);
-      sleep(waitSec);
+      usleep(waitSec*1000);
       netSocket = -1;
+      retryCount++;
     }
   }while(netSocket < 0 );
 
@@ -420,7 +422,7 @@ int main(int argc, char **argv) {
 
   time_t startTime = time(NULL);
   time_t lastPrint = startTime;
-  int displayTimeIntevral = 2; //sec
+  int displayTimeIntevral = 1; //sec
 
   DataStatus status = Good;
   do{
