@@ -35,10 +35,10 @@ public:
     printf("Board : %u, Channel : %u, Energy : %u, Time : %lu\n", board, channel, energy, timestamp);
   }
 
-  void FillTAC(uint32_t * data){
+  void FillTAC(uint32_t * data, bool debug = false){
     board = 99;
     channel = 0;
-    timestamp = (((uint64_t) data[1]) << 16) + ( data[2] & 0xFFFF);
+    timestamp = (((uint64_t) data[2] & 0xFFFF) << 16) + data[1];
 
     trigType     = data[3] >> 16; wheel          = data[3] & 0xFFFF;
     multiplicity = data[4] >> 16; userRegister   = data[4] & 0xFFFF;
@@ -46,6 +46,36 @@ public:
     tdcOffset[0] = data[6] >> 16; tdcOffset[1]   = data[6] & 0xFFFF; 
     tdcOffset[2] = data[7] >> 16; tdcOffset[3]   = data[7] & 0xFFFF; 
     vernierAB    = data[8] >> 16; vernierCD      = data[8] & 0xFFFF; 
+
+    if( debug){
+      printf("--------------------------  TAC-II data --------------------------\n");
+      printf("    timestamp : 0x%012lX = %lu x 10 ns\n", timestamp, timestamp );
+      
+      uint64_t timestamp2 = (timestamp & 0xFFFFFFFF0000) + coarseTS;
+      
+      printf("    Coarse TS : 0x%04X = %d x 10 ns\n", coarseTS, coarseTS);
+      printf("   timestamp2 : 0x%012lX = %lu x 10 ns\n", timestamp2, timestamp2 );
+
+      uint64_t timeDiff = 0;
+      if( timestamp2 < timestamp ) {
+        timeDiff = timestamp - timestamp2;
+      }else{
+        timeDiff = timestamp2 - timestamp;
+      }
+
+      printf("abs time diff : %ld ns\n", timeDiff * 10);
+      printf("     trigType : 0x%04X\n", trigType);
+      printf("        wheel : 0x%04X\n", wheel);
+      printf("         User : 0x%04X\n", userRegister);
+      printf("      trigger : 0x%04X\n", triggerBitMask);
+      printf(" TDC offset 0 : 0x%04X\n", tdcOffset[0]);
+      printf(" TDC offset 1 : 0x%04X\n", tdcOffset[1]);
+      printf(" TDC offset 2 : 0x%04X\n", tdcOffset[2]);
+      printf(" TDC offset 3 : 0x%04X\n", tdcOffset[3]);
+      printf("   Vernier AB : 0x%04X\n", vernierAB);
+      printf("   Vernier CD : 0x%04X\n", vernierCD);
+      printf("==================================================================\n");
+    }
 
   }
   
@@ -75,14 +105,15 @@ public:
     int validCount = 0;
     double avgOffset = 0;
     for( int i = 0; i < 4; i++){
-      if( debug) printf("Vernier-%d : 0x%02X = %d | offset : 0x%X = %d\n", i, vernier[i], vernier[i], tdcOffset[i], tdcOffset[i]);
+      if( debug) printf("Vernier-%d : 0x%02X = %3d | offset : 0x%X = %d |", i, vernier[i], vernier[i], tdcOffset[i], tdcOffset[i]);
       if( ((validBit >> i) & 0x1 ) && ((validMask >> i) & 0x1 )  ){
         offset[i] = tdcOffset[i] * 4 + prePhase[i] - 0.05 * vernier[i] ;
         validCount ++;
         avgOffset += offset[i];
+        if( debug) printf("\n");
       }else{
         offset[i] = 0;
-        if( debug) printf("      offset %d  is not valid\n", i);
+        if( debug) printf(" XXX offset %d  is not valid\n", i);
       }
     }
 
@@ -194,8 +225,8 @@ inline int Reader::ReadNextBlock(bool fastRead, bool debug){
 
       if( debug ) for( int i = 0; i < 9; i++) printf("%d | 0x%08X\n", i, data[i]);
 
-      hit->FillTAC(data);
-      hit->CalTAC(true);
+      hit->FillTAC(data, debug);
+      hit->CalTAC(debug);
 
     }
   }

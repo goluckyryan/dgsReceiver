@@ -10,6 +10,8 @@
 
 int debug = 1;
 
+// int displayCount = 0;
+
 #define MAX_FILE_SIZE_BYTE 1024LL*1024*1024*2
 
 #define TRIG_DATA_SIZE 16 // words
@@ -49,7 +51,7 @@ int netSocket = -1;
   typedef struct gebData GEBDATA;
 #endif
 
-uint32_t data[10000];
+uint32_t data[70000];
 
 std::string serverIP = "192.168.203.211";
 int serverPort = 9001;
@@ -326,7 +328,10 @@ DataStatus WriteData(int bytes_received){
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
       int header[TRIG_DATA_SIZE];
-      for( int i = 1; i < TRIG_DATA_SIZE; i++) header[i] = ntohl(data[index+i]);
+      for( int i = 1; i < TRIG_DATA_SIZE; i++) {
+        header[i] = ntohl(data[index+i]);
+        // if( displayCount < 10 ) printf("%d | 0x%08X\n", index+i, header[i]);
+      }
 
       int ch_id					    = 0x0;
       int board_id	        =  99;
@@ -343,20 +348,26 @@ DataStatus WriteData(int bytes_received){
       payload[1] |= packet_length_in_words << 16;  // always 8 words payload
       
       payload[2]  = header[4]   ;
-      payload[2] |= header[3]  << 16;
+      payload[2] |= header[3]  << 16;  // timestamp 31:0
       
-      payload[3]  = header[2]   ;
+      payload[3]  = header[2]   ;  // timestamp 47:32
       payload[3] |= header_type  << 16; // header_type
       //payload[3] |= 0x0  << 23; // event_type
       payload[3] |= 3 << 26;
       
-      payload[4] = (header[ 1] << 16) + header[ 5];
-      payload[5] = (header[ 6] << 16) + header[ 7];
-      payload[6] = (header[ 8] << 16) + header[ 9];
-      payload[7] = (header[10] << 16) + header[11];
-      payload[8] = (header[12] << 16) + header[13];
-      payload[9] = (header[14] << 16) + header[15];
-      
+      payload[4] = (header[ 1] << 16) + header[ 5];  // trigType, wheel
+      payload[5] = (header[ 6] << 16) + header[ 7];  // multiplicity, userRegister
+      payload[6] = (header[ 8] << 16) + header[ 9];  // coarseTS, triggerBitMask
+      payload[7] = (header[10] << 16) + header[11];  // tdcOffset[0], tdcOffset[1]
+      payload[8] = (header[12] << 16) + header[13];  // tdcOffset[2], tdcOffset[3]
+      payload[9] = (header[14] << 16) + header[15];  // vernierAB, vernierCD
+
+      // if( displayCount < 10 ) { 
+      //   for( int i = 0; i < 10; i++) printf("%d | 0x%08X\n", i, payload[i]);
+      // }
+
+      // displayCount ++;
+
       #ifdef ENABLE_GEB_HEADER
         gebData GEB_data;
         GEB_data.type = 0;

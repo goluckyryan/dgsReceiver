@@ -51,5 +51,7 @@ void script(){
   reader.ScanNumBlock();
 
   reader.ReadBlock(0, 1);
+  reader.ReadBlock(1, 1);
+  reader.ReadBlock(2, 1);
 
 }
