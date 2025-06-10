@@ -1,46 +1,77 @@
 #include "reader.h"
 
+#include "TH1F.h"
+#include "TStyle.h"
+#include "TMath.h"
+#include "TCanvas.h"
+
+uint32_t * packData(uint32_t * data){
+  uint32_t * payload = new uint32_t[10];
+
+  payload[0] = 0xAAAAAAAA;
+      
+  payload[1]  = 0;
+  payload[1] |= 99 << 4;
+  payload[1] |= 10 << 16;  // always 8 words payload
+  
+  payload[2]  = data[4]   ;
+  payload[2] |= data[3]  << 16;  // timestamp 31:0
+  
+  payload[3]  = data[2]   ;  // timestamp 47:32
+  payload[3] |= 0xE  << 16; // header_type
+  //payload[3] |= 0x0  << 23; // event_type
+  payload[3] |= 3 << 26;
+  
+  payload[4] = (data[ 1] << 16) + data[ 5];  // trigType, wheel
+  payload[5] = (data[ 6] << 16) + data[ 7];  // multiplicity, userRegister
+  payload[6] = (data[ 8] << 16) + data[ 9];  // coarseTS, triggerBitMask
+  payload[7] = (data[10] << 16) + data[11];  // tdcOffset[0], tdcOffset[1]
+  payload[8] = (data[12] << 16) + data[13];  // tdcOffset[2], tdcOffset[3]
+  payload[9] = (data[14] << 16) + data[15];  // vernierAB, vernierCD
+
+  return payload;
+}
+
 void script(){
 
   //================= example 
   // Hit hit;
 
-  // hit.timestamp  = ((uint64_t)0x003D << 32);;
-  // hit.timestamp += ((uint64_t)0xDA5D << 16);
-  // hit.timestamp += 0xEA84;
+  // uint32_t data[16] = {
+  //   0xAAAA, //0 header
+  //   0x50FF, //1 trigtype
+  //   0x0000, //2 timestamp 47:32
+  //   0x0B2B, //3 timestamp 31:16
+  //   0x3B32, //4 timestamp 15:0
+  //   0xA051, //5 wheel
+  //   0x0000, //6 multiplicity
+  //   0x7234, //7 userRegister
+  //   0x1494, //8 coarseTS
+  //   0x0001, //9 triggerBitMask
+  //   0xB322, //10 tdcOffset[0]
+  //   0xB323, //11 tdcOffset[1]
+  //   0x517B, //12 tdcOffset[2]
+  //   0x517B, //13 tdcOffset[3]
+  //   0xFEA6, //14 vernierAB
+  //   0x0543  //15 vernierCD
+  // };
 
-  // hit.trigType = 20735;
-  // hit.wheel = 890;
-  // hit.multiplicity = 1;
-  // hit.userRegister = 4660;
-  // hit.coarseTS = 60052;
-  // hit.triggerBitMask = 1;
-  // hit.tdcOffset[0] = 45252;
-  // hit.tdcOffset[1] = 45253;
-  // hit.tdcOffset[2] = 51749;
-  // hit.tdcOffset[3] = 51749;
-  // hit.vernierAB = 53914;
-  // hit.vernierCD = 2973;
+  // for( int i = 0; i < 16; i++ ) printf("%2d| 0x%04X\n", i, data[i]);
 
 
-  // printf(" 1 | 0x%04X\n", hit.trigType);
-  // printf(" 2 | 0x%04X\n", (uint16_t)(hit.timestamp >> 32) & 0xFFFF);
-  // printf(" 3 | 0x%04X\n", (uint16_t)(hit.timestamp >> 16) & 0xFFFF);
-  // printf(" 4 | 0x%04X\n", (uint16_t)hit.timestamp & 0xFFFF);
-  // printf(" 5 | 0x%04X\n", hit.wheel);
-  // printf(" 6 | 0x%04X\n", hit.userRegister);
-  // printf(" 7 | 0x%04X\n", hit.coarseTS);
-  // printf(" 8 | 0x%04X\n", hit.triggerBitMask);
-  // printf(" 9 | 0x%04X\n", hit.tdcOffset[0]);
-  // printf("10 | 0x%04X\n", hit.tdcOffset[1]);
-  // printf("11 | 0x%04X\n", hit.tdcOffset[2]);
-  // printf("12 | 0x%04X\n", hit.tdcOffset[3]);
-  // printf("13 | 0x%04X\n", hit.vernierAB);
-  // printf("14 | 0x%04X\n", hit.vernierCD);
-  
-  // hit.CalTAC();
+  // uint32_t * packedData = packData(data);
+  // // for( int i = 0; i < 10; i++ ) printf("%2d| 0x%08X\n", i, packedData[i]);
+  // hit.FillTDC(&packedData[1], true);
+  // hit.CalTAC(true);
 
   //================= Reader
+
+
+  TH1F * h1 = new TH1F("h", "MTRGtimestamp - phaseTime; [ns]", 1000, 65, 67);
+  TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
+  TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
+
+
   Reader reader("haha_000_0099_0_trig");
 
   // reader.ReadNextBlock(1, 1);
@@ -48,10 +79,46 @@ void script(){
   // reader.ReadNextBlock(1, 1);
   // reader.ReadNextBlock(0, 1);
 
-  reader.ScanNumBlock();
+  int totBlock = reader.ScanNumBlock();
 
   reader.ReadBlock(0, 1);
-  reader.ReadBlock(1, 1);
-  reader.ReadBlock(2, 1);
+  // reader.ReadNextBlock(0, 1);
+
+  int displayNANCount = 0;
+
+  for( int i = 0; i < totBlock; i++){
+    int haha = reader.ReadNextBlock();
+    if( haha < 0 ) {
+      printf("Error reading block %d, code: %d\n", i, haha);
+      break;
+    }
+    double diff = reader.hit->MTRGtimestamp - reader.hit->avgPhaseTimestamp;
+    if( TMath::IsNaN(diff) ) {
+      if( i > 5000 && displayNANCount < 10 ) {
+        printf("Block %d, MTRG timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->MTRGtimestamp, reader.hit->avgPhaseTimestamp, diff);
+        reader.hit->PrintAsIfRaw();
+        reader.hit->Print();
+        reader.hit->CalTAC(true);
+        displayNANCount++;
+      }
+    }
+    h1->Fill(diff); 
+    int totalValidCount = 0;
+    for ( int j = 0; j < 4; j++){
+      if( reader.hit->valid[j] ) {
+        h2->Fill(j);
+        totalValidCount++;
+      }
+    }
+    h3->Fill(totalValidCount);
+  }
+
+  TCanvas * c1 = new TCanvas("c1", "c1", 1200, 600);
+  c1->Divide(3, 1);
+
+  gStyle->SetOptStat("neiou");
+  c1->cd(1); h1->Draw();
+  c1->cd(2); h2->Draw();
+  c1->cd(3); h3->Draw();
 
 }
