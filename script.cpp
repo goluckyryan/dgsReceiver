@@ -64,61 +64,73 @@ void script(){
   // hit.FillTDC(&packedData[1], true);
   // hit.CalTAC(true);
 
+
+  //================= Reader debug
+  Reader reader("haha_000_0099_0_trig");
+  int totBlock = reader.ScanNumBlock();
+
+  reader.ReadNextBlock(0,1);
+
   //================= Reader
 
 
-  TH1F * h1 = new TH1F("h", "MTRGtimestamp - phaseTime; [ns]", 1000, 65, 67);
-  TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
-  TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
+  // TH1F * h0 = new TH1F("h0", "TDCtimestamp - MTRGtimestamp; [ns]", 1000, -0x9FFF6, 0x9FFF6);
+  // TH1F * h1 = new TH1F("h1", "TDCtimestamp - phaseTime; [ns]", 1000, 285, 288);
+  // TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
+  // TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
 
 
-  Reader reader("haha_000_0099_0_trig");
+  // Reader reader("haha_000_0099_0_trig");
 
-  // reader.ReadNextBlock(1, 1);
-  // reader.ReadNextBlock(1, 1);
-  // reader.ReadNextBlock(1, 1);
-  // reader.ReadNextBlock(0, 1);
+  // // reader.ReadNextBlock(1, 1);
+  // // reader.ReadNextBlock(1, 1);
+  // // reader.ReadNextBlock(1, 1);
+  // // reader.ReadNextBlock(0, 1);
 
-  int totBlock = reader.ScanNumBlock();
+  // int totBlock = reader.ScanNumBlock();
 
-  reader.ReadBlock(0, 1);
-  // reader.ReadNextBlock(0, 1);
+  // reader.ReadBlock(0, 1);
+  // // reader.ReadNextBlock(0, 1);
+  // // reader.ReadNextBlock(0, 1);
+  // // reader.ReadNextBlock(0, 1);
 
-  int displayNANCount = 0;
+  // int displayNANCount = 0;
 
-  for( int i = 0; i < totBlock; i++){
-    int haha = reader.ReadNextBlock();
-    if( haha < 0 ) {
-      printf("Error reading block %d, code: %d\n", i, haha);
-      break;
-    }
-    double diff = reader.hit->MTRGtimestamp - reader.hit->avgPhaseTimestamp;
-    if( TMath::IsNaN(diff) ) {
-      if( i > 5000 && displayNANCount < 10 ) {
-        printf("Block %d, MTRG timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->MTRGtimestamp, reader.hit->avgPhaseTimestamp, diff);
-        reader.hit->PrintAsIfRaw();
-        reader.hit->Print();
-        reader.hit->CalTAC(true);
-        displayNANCount++;
-      }
-    }
-    h1->Fill(diff); 
-    int totalValidCount = 0;
-    for ( int j = 0; j < 4; j++){
-      if( reader.hit->valid[j] ) {
-        h2->Fill(j);
-        totalValidCount++;
-      }
-    }
-    h3->Fill(totalValidCount);
-  }
+  // for( int i = 0; i < totBlock; i++){
+  //   int haha = reader.ReadNextBlock();
+  //   if( haha < 0 ) {
+  //     printf("Error reading block %d, code: %d\n", i, haha);
+  //     break;
+  //   }
+  //   double diff = reader.hit->TDCtimestamp - reader.hit->avgPhaseTimestamp;
+  //   printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->MTRGtimestamp, reader.hit->avgPhaseTimestamp, diff);
+  //   h0->Fill(reader.hit->TDCtimestamp - reader.hit->MTRGtimestamp);
+  //   h1->Fill(diff); 
+  //   int totalValidCount = 0;
+  //   for ( int j = 0; j < 4; j++){
+  //     if( reader.hit->valid[j] ) {
+  //       h2->Fill(j);
+  //       totalValidCount++;
+  //     }
+  //     if( totalValidCount == 0 ) {
+  //       if( i > 5000 && displayNANCount < 10 ) {
+  //         reader.hit->PrintAsIfRaw();
+  //         reader.hit->Print();
+  //         reader.hit->CalTAC(true);
+  //         displayNANCount++;
+  //       }
+  //     }
+  //   }
+  //   h3->Fill(totalValidCount);
+  // }
 
-  TCanvas * c1 = new TCanvas("c1", "c1", 1200, 600);
-  c1->Divide(3, 1);
+  // TCanvas * c1 = new TCanvas("c1", "c1", 1200, 1200);
+  // c1->Divide(2, 2);
 
-  gStyle->SetOptStat("neiou");
-  c1->cd(1); h1->Draw();
-  c1->cd(2); h2->Draw();
-  c1->cd(3); h3->Draw();
+  // gStyle->SetOptStat("neiou");
+  // c1->cd(1); c1->cd(1)->SetLogy(1); h0->Draw();
+  // c1->cd(2); h1->Draw();
+  // c1->cd(3); h2->Draw();
+  // c1->cd(4); h3->Draw();
 
 }

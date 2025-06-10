@@ -129,6 +129,7 @@ public:
       double kaka = offset[i] * 4; // convert to ns
 
       phaseTime[i] = haha + kaka; 
+      valid[i] = false; // reset valid
 
       if( debug ) printf("phase time-%d | %.0f + %.0f = %.0f ns \n", i, haha, kaka, phaseTime[i]);
       // if( phaseTime[i] < MTRGtimestamp  ) {
@@ -141,27 +142,31 @@ public:
 
     short validMask = 0x0;
     for( int i = 0; i < 4; i++){
-      double diff = abs(TDCtimestamp - phaseTime[i]);
-      if( debug) printf(" %.0f ", TDCtimestamp - phaseTime[i]); 
-      if ( 200 < diff && diff < 300  ) {
+      if( debug ) printf("----------- %d \n", i);
+      short sign = 1;
+      double diff = TDCtimestamp - phaseTime[i];
+      if( debug) printf("Diff %.0f \n", TDCtimestamp - phaseTime[i]); 
+      if ( 200 < abs(diff) && abs(diff) < 300  ) {
         validMask |= (1 << i);
-        if( debug) printf("| phase time-%d is valid\n", i);
+        if( debug ) printf("| phase time-%d is valid.\n", i);
         valid[i] = true;
       }else{
+        if( diff < 0 ) sign = -1;
+        if( diff > 0 ) sign = 1;
+        do{        
+          phaseTime[i] += sign * 262144; 
+          diff = TDCtimestamp - phaseTime[i];
+          if( debug) printf("Diff %.0f \n", TDCtimestamp - phaseTime[i]); 
+          if ( 200 < abs(diff) && abs(diff) < 300  ) {
+            validMask |= (1 << i);
+            if( debug ) printf("| phase time-%d is valid after roll-over correction.\n", i);
+            valid[i] = true;
+            break;
+          }
+        }while(abs(diff) > 262144);
+        
+        if( debug ) printf("| phase time-%d is NOT valid after roll-over correction.\n", i);
 
-        if( diff < 0 )phaseTime[i] -= 262144;
-        if( diff > 0 )phaseTime[i] += 262144;
-
-        //check again
-        diff = abs(TDCtimestamp - phaseTime[i]);
-        if( 200 < diff && diff < 300  ) {
-          validMask |= (1 << i);
-          if( debug) printf("| phase time-%d is valid after correction\n", i);
-          valid[i] = true;
-        }else{
-          if( debug) printf("| phase time-%d is NOT valid after correction\n", i);
-          valid[i] = false;
-        }
       }
     }
 
