@@ -340,7 +340,7 @@ inline int Reader::ScanNumBlock(){
   printf("\nScan complete: number of data Block : %u\n", totNumBlock);
   printf("\n");
 
-  fseek(inFile, 0L, SEEK_CUR);
+  fseek(inFile, 0L, SEEK_SET);
   isEndOfFile = false;
 
   return totNumBlock;
