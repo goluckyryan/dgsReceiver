@@ -89,9 +89,9 @@ void script(){
       printf("Error reading block %d, code: %d\n", i, haha);
       break;
     }
-    double diff = reader.hit->TDCtimestamp - reader.hit->avgPhaseTimestamp;
-    printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->MTRGtimestamp, reader.hit->avgPhaseTimestamp, diff);
-    h0->Fill(reader.hit->TDCtimestamp - reader.hit->MTRGtimestamp);
+    double diff = reader.hit->timestampTDC - reader.hit->avgPhaseTimestamp;
+    printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->timestampTrig, reader.hit->avgPhaseTimestamp, diff);
+    h0->Fill(reader.hit->timestampTDC - reader.hit->timestampTrig);
     h1->Fill(diff); 
     int totalValidCount = 0;
     for ( int j = 0; j < 4; j++){

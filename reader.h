@@ -14,8 +14,8 @@ class Hit{
 public:
   uint8_t  board;
   uint8_t  channel;
-  uint64_t MTRGtimestamp;
-  uint64_t TDCtimestamp; // for TDC timestamp
+  uint64_t timestampTrig;
+  uint64_t timestampTDC; // for TDC timestamp
 
   //TAC-II data
   uint16_t trigType;
@@ -41,9 +41,9 @@ public:
     printf("-------------------- raw data -------------------\n");
     printf(" 0 | 0xAAAA\n");
     printf(" 1 | 0x%04X\n", trigType);
-    printf(" 2 | 0x%04X\n", (uint16_t)(MTRGtimestamp/10 >> 32));
-    printf(" 3 | 0x%04X\n", (uint16_t)((MTRGtimestamp/10 & 0xFFFFFFFF) >> 16));
-    printf(" 4 | 0x%04X\n", (uint16_t)(MTRGtimestamp/10 & 0xFFFF));
+    printf(" 2 | 0x%04X\n", (uint16_t)(timestampTrig/10 >> 32));
+    printf(" 3 | 0x%04X\n", (uint16_t)((timestampTrig/10 & 0xFFFFFFFF) >> 16));
+    printf(" 4 | 0x%04X\n", (uint16_t)(timestampTrig/10 & 0xFFFF));
     printf(" 5 | 0x%04X\n", wheel);
     printf(" 6 | 0x%04X\n", multiplicity);
     printf(" 7 | 0x%04X\n", userRegister);
@@ -62,11 +62,11 @@ public:
     
     printf("--------------------------  TAC-II data --------------------------\n");
     // printf("Board : %u, Channel : %u\n", board, channel);
-    printf("MTRGtimestamp : 0x%012lX = %lu ns\n", MTRGtimestamp, MTRGtimestamp );
+    printf("MTRGtimestamp : 0x%012lX = %lu ns\n", timestampTrig, timestampTrig );
     printf("    Coarse TS : 0x%012X \n", coarseTS);
-    printf(" TDCtimestamp : 0x%012lX = %lu ns\n", TDCtimestamp, TDCtimestamp );
+    printf(" TDCtimestamp : 0x%012lX = %lu ns\n", timestampTDC, timestampTDC );
 
-    uint64_t timeDiff = TDCtimestamp - MTRGtimestamp;
+    uint64_t timeDiff = timestampTDC - timestampTrig;
  
     printf("abs time diff : %ld ns\n", timeDiff);
     printf("     trigType : 0x%04X\n", trigType);
@@ -92,7 +92,7 @@ public:
   void FillTDC(uint32_t * data, bool debug = false){
     board = 99;
     channel = 0;
-    MTRGtimestamp = (((uint64_t) data[2] & 0xFFFF) << 16) + data[1];
+    timestampTrig = (((uint64_t) data[2] & 0xFFFF) << 16) + data[1];
 
     trigType     = data[3] >> 16; wheel          = data[3] & 0xFFFF;
     multiplicity = data[4] >> 16; userRegister   = data[4] & 0xFFFF;
@@ -102,11 +102,11 @@ public:
     vernierAB    = data[8] >> 16; vernierCD      = data[8] & 0xFFFF; 
 
     //==== check coarseTS 
-    TDCtimestamp = (MTRGtimestamp & 0xFFFFFFFF0000) + coarseTS;
-    if( TDCtimestamp < MTRGtimestamp ) TDCtimestamp += 0x10000;
+    timestampTDC = (timestampTrig & 0xFFFFFFFF0000) + coarseTS;
+    if( timestampTDC < timestampTrig ) timestampTDC += 0x10000;
 
-    MTRGtimestamp *= 10; // convert to 10 ns
-    TDCtimestamp *= 10; // convert to 10 ns
+    timestampTrig *= 10; // convert to 10 ns
+    timestampTDC *= 10; // convert to 10 ns
 
     validBit = (vernierAB >> 12) & 0xF;
     vernier[1] =  vernierAB & 0x3F;
@@ -124,7 +124,7 @@ public:
   double CalTAC(bool debug = false){
   
     
-    double haha = TDCtimestamp - TDCtimestamp % 262144;
+    double haha = timestampTDC - timestampTDC % 262144;
     for( int i = 0 ; i < 4; i++){
       double kaka = offset[i] * 4; // convert to ns
 
@@ -144,8 +144,8 @@ public:
     for( int i = 0; i < 4; i++){
       if( debug ) printf("----------- %d \n", i);
       short sign = 1;
-      double diff = TDCtimestamp - phaseTime[i];
-      if( debug) printf("Diff %.0f \n", TDCtimestamp - phaseTime[i]); 
+      double diff = timestampTDC - phaseTime[i];
+      if( debug) printf("Diff %.0f \n", timestampTDC - phaseTime[i]); 
       if ( 200 < abs(diff) && abs(diff) < 300  ) {
         validMask |= (1 << i);
         if( debug ) printf("| phase time-%d is valid.\n", i);
@@ -155,8 +155,8 @@ public:
         if( diff > 0 ) sign = 1;
         do{        
           phaseTime[i] += sign * 262144; 
-          diff = TDCtimestamp - phaseTime[i];
-          if( debug) printf("Diff %.0f \n", TDCtimestamp - phaseTime[i]); 
+          diff = timestampTDC - phaseTime[i];
+          if( debug) printf("Diff %.0f \n", timestampTDC - phaseTime[i]); 
           if ( 200 < abs(diff) && abs(diff) < 300  ) {
             validMask |= (1 << i);
             if( debug ) printf("| phase time-%d is valid after roll-over correction.\n", i);
@@ -167,6 +167,41 @@ public:
         
         if( debug ) printf("| phase time-%d is NOT valid after roll-over correction.\n", i);
 
+      }
+    }
+
+    std::vector<std::pair<int, int>> vernierPair;
+    for( int i = 0; i < 4; i++){
+      vernierPair.push_back(std::make_pair(i, vernier[i]));
+    }
+    //sort vernierPair by vernier value
+    std::sort(vernierPair.begin(), vernierPair.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+      return a.second < b.second;
+    });
+    // check the order of vernier, vernierPair[0].first represent the ordering of vernier
+    if( vernierPair[0].first >  0 ) {
+      for ( int i = 1; i < 4; i++){
+        vernierPair[i].first += 4;
+      }
+    }
+    bool isOrderValid = true;
+    for( int i = 1; i < 4; i++ ){
+      if( vernierPair[i-1].first > vernierPair[i].first ){
+        isOrderValid = false;
+        if( debug ) {
+          printf("Vernier-%d (%d) is out of order with Vernier-%d (%d) \n", 
+          vernierPair[i-1].first, vernierPair[i-1].second, vernierPair[i].first, vernierPair[i].second);
+        }
+        break;
+      }
+    }
+    // check which on is not in order
+    if( !isOrderValid ){
+      for( int i = 1; i < 4; i++ ){
+        if( vernierPair[i-1].first > vernierPair[i].first ){
+          if( debug ) printf("Vernier-%d (%d) is out of order with Vernier-%d (%d) \n", 
+          vernierPair[i-1].first, vernierPair[i-1].second, vernierPair[i].first, vernierPair[i].second);
+        }
       }
     }
 
@@ -190,7 +225,7 @@ public:
     // average of the offset
     avgPhaseTimestamp /= validCount;
 
-    if( debug) printf("average offset : %.3f ns | diff to MTRG : %f\n", avgPhaseTimestamp, MTRGtimestamp - avgPhaseTimestamp); 
+    if( debug) printf("average offset : %.3f ns | diff to MTRG : %f\n", avgPhaseTimestamp, timestampTrig - avgPhaseTimestamp); 
     
     return avgPhaseTimestamp; // ns
 
