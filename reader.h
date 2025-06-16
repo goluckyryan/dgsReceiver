@@ -94,7 +94,7 @@ public:
   void FillTDC(uint32_t * data, bool debug = false){
     board = 99;
     channel = 0;
-    timestampTrig = (((uint64_t) data[2] & 0xFFFF) << 16) + data[1];
+    timestampTrig = (((uint64_t) data[2] & 0xFFFF) << 32) + data[1];
 
     trigType     = data[3] >> 16; wheel          = data[3] & 0xFFFF;
     multiplicity = data[4] >> 16; userRegister   = data[4] & 0xFFFF;
