@@ -30,6 +30,8 @@ public:
 
   uint8_t validBit;
   int vernier[4];
+  int vernierOrder;
+  bool isVernierGoodOrder;
   double phaseTime[4]; // in ns
   
   bool valid[4];
@@ -62,9 +64,9 @@ public:
     
     printf("--------------------------  TAC-II data --------------------------\n");
     // printf("Board : %u, Channel : %u\n", board, channel);
-    printf("MTRGtimestamp : 0x%012lX = %lu ns\n", timestampTrig, timestampTrig );
+    printf("MTRGtimestamp : 0x%012lX x 10 = %lu ns\n", timestampTrig/10, timestampTrig );
     printf("    Coarse TS : 0x%012X \n", coarseTS);
-    printf(" TDCtimestamp : 0x%012lX = %lu ns\n", timestampTDC, timestampTDC );
+    printf(" TDCtimestamp : 0x%012lX x 10 = %lu ns\n", timestampTDC/10, timestampTDC );
 
     uint64_t timeDiff = timestampTDC - timestampTrig;
  
@@ -73,17 +75,17 @@ public:
     printf("        wheel : 0x%04X\n", wheel);
     printf("         User : 0x%04X\n", userRegister);
     printf("      trigger : 0x%04X\n", triggerBitMask);
-    printf(" TDC offset 0 : 0x%04X = %d\n", offset[0], offset[0]);
-    printf(" TDC offset 1 : 0x%04X = %d\n", offset[1], offset[1]);
-    printf(" TDC offset 2 : 0x%04X = %d\n", offset[2], offset[2]);
-    printf(" TDC offset 3 : 0x%04X = %d\n", offset[3], offset[3]);
+    printf(" TDC offset 0 : 0x%04X x 4 ns = %d\n", offset[0], offset[0] * 4);
+    printf(" TDC offset 1 : 0x%04X x 4 ns = %d\n", offset[1], offset[1] * 4);
+    printf(" TDC offset 2 : 0x%04X x 4 ns = %d\n", offset[2], offset[2] * 4);
+    printf(" TDC offset 3 : 0x%04X x 4 ns = %d\n", offset[3], offset[3] * 4);
     printf("   Vernier AB : 0x%04X\n", vernierAB);
     printf("   Vernier CD : 0x%04X\n", vernierCD);
     printf("--------------------\n");
+    printf("Vernier-0 : 0x%02X = %u\n", vernier[0], vernier[0]);
     printf("Vernier-1 : 0x%02X = %u\n", vernier[1], vernier[1]);
     printf("Vernier-2 : 0x%02X = %u\n", vernier[2], vernier[2]);
     printf("Vernier-3 : 0x%02X = %u\n", vernier[3], vernier[3]);
-    printf("Vernier-0 : 0x%02X = %u\n", vernier[0], vernier[0]);
 
     printf("==================================================================\n");
 
@@ -109,10 +111,10 @@ public:
     timestampTDC *= 10; // convert to 10 ns
 
     validBit = (vernierAB >> 12) & 0xF;
-    vernier[1] =  vernierAB & 0x3F;
-    vernier[0] = (vernierAB >> 6) & 0x3F;
-    vernier[3] =  vernierCD & 0x3F;
-    vernier[2] = (vernierCD >> 6) & 0x3F;
+    vernier[1] = 64 -  vernierAB & 0x3F;
+    vernier[0] = 64 - (vernierAB >> 6) & 0x3F;
+    vernier[3] = 64 -  vernierCD & 0x3F;
+    vernier[2] = 64 - (vernierCD >> 6) & 0x3F;
 
     if( debug) {
       PrintAsIfRaw();
@@ -127,17 +129,9 @@ public:
     double haha = timestampTDC - timestampTDC % 262144;
     for( int i = 0 ; i < 4; i++){
       double kaka = offset[i] * 4; // convert to ns
-
       phaseTime[i] = haha + kaka; 
       valid[i] = false; // reset valid
-
       if( debug ) printf("phase time-%d | %.0f + %.0f = %.0f ns \n", i, haha, kaka, phaseTime[i]);
-      // if( phaseTime[i] < MTRGtimestamp  ) {
-      //   phaseTime[i] += 2621440; // 2621440 = 262144 * 10 ns
-      //   if(debug) printf(" + 2621440 ns = %.0f ns\n", phaseTime[i]);
-      // }else{
-      //   if(debug) printf("\n");
-      // }
     }
 
     short validMask = 0x0;
@@ -170,37 +164,34 @@ public:
       }
     }
 
+    isVernierGoodOrder = true;
     std::vector<std::pair<int, int>> vernierPair;
     for( int i = 0; i < 4; i++){
       vernierPair.push_back(std::make_pair(i, vernier[i]));
     }
-    //sort vernierPair by vernier value
     std::sort(vernierPair.begin(), vernierPair.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
       return a.second < b.second;
     });
-    // check the order of vernier, vernierPair[0].first represent the ordering of vernier
-    if( vernierPair[0].first >  0 ) {
-      for ( int i = 1; i < 4; i++){
-        vernierPair[i].first += 4;
-      }
-    }
-    bool isOrderValid = true;
-    for( int i = 1; i < 4; i++ ){
-      if( vernierPair[i-1].first > vernierPair[i].first ){
-        isOrderValid = false;
-        if( debug ) {
-          printf("Vernier-%d (%d) is out of order with Vernier-%d (%d) \n", 
-          vernierPair[i-1].first, vernierPair[i-1].second, vernierPair[i].first, vernierPair[i].second);
-        }
-        break;
-      }
-    }
-    // check which on is not in order
-    if( !isOrderValid ){
-      for( int i = 1; i < 4; i++ ){
-        if( vernierPair[i-1].first > vernierPair[i].first ){
-          if( debug ) printf("Vernier-%d (%d) is out of order with Vernier-%d (%d) \n", 
-          vernierPair[i-1].first, vernierPair[i-1].second, vernierPair[i].first, vernierPair[i].second);
+    vernierOrder = 0;
+    for( int i = 0; i < 4; i++) vernierOrder += vernierPair[i].first * pow(10, 3-i);
+
+    if( !(vernierOrder == 123 || vernierOrder == 1230 || vernierOrder ==2301 || vernierOrder == 3012) ) isVernierGoodOrder = false;
+    if( isVernierGoodOrder  && debug ) printf(" the Vernier is in good order : %d\n", vernierOrder);
+
+    int tolerance = 4; // step
+    std::vector<std::pair<int, int>> outlinerPair;
+    for( int i = 0; i < 4; i ++){
+      for( int j = i+1; j < 4; j++){
+        int diff = vernierPair[j].second - vernierPair[i].second;
+        int dist = 20 * (j-i);
+        int tor = tolerance * (j-i);
+        if( debug) printf("%d - %d | diff : %d | %d - %d ", j,  i, diff, dist - tor , dist + tor);
+
+        if( abs(dist - diff) > tor) {
+          outlinerPair.push_back(std::make_pair(vernierPair[i].first, vernierPair[j].first));
+          if( debug) printf(" | X \n");
+        }else{
+          if( debug) printf(" | O \n");
         }
       }
     }
@@ -210,9 +201,9 @@ public:
     int validCount = 0;
     avgPhaseTimestamp = 0;
     for( int i = 0; i < 4; i++){
-      if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset : 0x%X  * 4 = %d", i, 64-vernier[i], 64-vernier[i], (64-vernier[i]) * 0.05, offset[i], offset[i] *4);
+      if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset : 0x%X  * 4 = %d", i, vernier[i], vernier[i], vernier[i] * 0.05, offset[i], offset[i] *4);
       if( (validBit & (1 << i)) && (validMask & (1 << i)) ){
-        phaseTime[i] +=  phaseOffet[i] - 0.05 * (64 - vernier[i]) ;
+        phaseTime[i] +=  phaseOffet[i] - 0.05 * vernier[i] ;
         validCount ++;
         avgPhaseTimestamp += phaseTime[i];
         if( debug) printf("| OOO\n");
