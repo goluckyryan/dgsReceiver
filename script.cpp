@@ -69,56 +69,61 @@ void script(){
 
   
   
-  Reader reader("haha_000_0099_0_trig");
+  Reader reader("haha_01ft_100ns_000_0099_0_trig");
   
   int totBlock = reader.ScanNumBlock();
   
-  reader.ReadNextBlock(0, 1);
   // reader.ReadNextBlock(0, 1);
+  // printf("##################################\n");
+  // reader.ReadNextBlock(0, 1);
+  // printf("##################################\n");
   // reader.ReadNextBlock(0, 1);
   
-  // int displayNANCount = 0;
+  int displayNANCount = 0;
   
-  // TH1F * h0 = new TH1F("h0", "TDCtimestamp - MTRGtimestamp; [ns]", 1000, -0x9FFF6, 0x9FFF6);
-  // TH1F * h1 = new TH1F("h1", "TDCtimestamp - phaseTime; [ns]", 1000, 435, 436);
-  // TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
-  // TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
+  int plotRange = 100; // ns
+  int plotRangeStart = 200;
 
-  // for( int i = 0; i < totBlock; i++){
-  //   int haha = reader.ReadNextBlock();
-  //   if( haha < 0 ) {
-  //     printf("Error reading block %d, code: %d\n", i, haha);
-  //     break;
-  //   }
-  //   double diff = reader.hit->timestampTDC - reader.hit->avgPhaseTimestamp;
-  //   // printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->timestampTrig, reader.hit->avgPhaseTimestamp, diff);
-  //   h0->Fill(reader.hit->timestampTDC - reader.hit->timestampTrig);
-  //   h1->Fill(diff); 
-  //   int totalValidCount = 0;
-  //   for ( int j = 0; j < 4; j++){
-  //     if( reader.hit->valid[j] ) {
-  //       h2->Fill(j);
-  //       totalValidCount++;
-  //     }
-  //     if( totalValidCount == 0 ) {
-  //       if( !reader.hit->isVernierGoodOrder &&  displayNANCount < 10 ) {
-  //         reader.hit->PrintAsIfRaw();
-  //         reader.hit->Print();
-  //         reader.hit->CalTAC(true);
-  //         displayNANCount++;
-  //       }
-  //     }
-  //   }
-  //   h3->Fill(totalValidCount);
-  // }
+  TH1F * h0 = new TH1F("h0", "timestampTDC - timestampTRIG; [ns]", 1000, 0, 600);
+  TH1F * h1 = new TH1F("h1", "timestampTDC - phaseTime; [ns]; count / 10 ps", 100 * plotRange  ,  plotRangeStart, plotRangeStart + plotRange);
+  TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
+  TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
 
-  // TCanvas * c1 = new TCanvas("c1", "c1", 1200, 1200);
-  // c1->Divide(2, 2);
+  for( int i = 0; i < totBlock; i++){
+    int haha = reader.ReadNextBlock();
+    if( haha < 0 ) {
+      printf("Error reading block %d, code: %d\n", i, haha);
+      break;
+    }
+    double diff = reader.hit->timestampTDC - reader.hit->avgPhaseTimestamp;
+    // printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->timestampTrig, reader.hit->avgPhaseTimestamp, diff);
+    h0->Fill(reader.hit->timestampTDC - reader.hit->timestampTrig);
+    h1->Fill(diff); 
+    int totalValidCount = 0;
+    for ( int j = 0; j < 4; j++){
+      if( reader.hit->valid[j] ) {
+        h2->Fill(j);
+        totalValidCount++;
+      }
+      if( totalValidCount == 0 ) {
+        if( (TMath::IsNaN(diff) || !reader.hit->isVernierGoodOrder) &&  displayNANCount < 10 ) {
+          reader.hit->PrintAsIfRaw();
+          reader.hit->Print();
+          reader.hit->CalTAC(true);
+          displayNANCount++;
+        }
+      }
+    }
+    h3->Fill(totalValidCount);
+  }
 
-  // gStyle->SetOptStat("neiou");
-  // c1->cd(1); c1->cd(1)->SetLogy(1); h0->Draw();
-  // c1->cd(2); c1->cd(2)->SetLogy(1); h1->Draw();
-  // c1->cd(3); h2->Draw();
-  // c1->cd(4); h3->Draw();
+  TCanvas * c1 = new TCanvas("c1", "c1", 1200, 600);
+  c1->Divide(2, 2);
+
+  gStyle->SetOptStat("neiou");
+  c1->cd(1); c1->cd(1)->SetLogy(1); h0->Draw();
+  c1->cd(2); c1->cd(2)->SetLogy(0); h1->Draw();
+  c1->cd(3); h2->Draw();
+  c1->cd(4); h3->Draw();
 
 }

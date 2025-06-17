@@ -68,9 +68,16 @@ public:
     printf("    Coarse TS : 0x%012X \n", coarseTS);
     printf(" TDCtimestamp : 0x%012lX x 10 = %lu ns\n", timestampTDC/10, timestampTDC );
 
-    uint64_t timeDiff = timestampTDC - timestampTrig;
+    double timeDiff = 0;
+    bool rollFlag = false;
+    if( timestampTDC < timestampTrig ) {
+      timeDiff = timestampTDC + 0x10000*10 - timestampTrig;
+      rollFlag = true;
+    }else{
+      timeDiff = timestampTDC - timestampTrig;
+    }
  
-    printf("abs time diff : %ld ns\n", timeDiff);
+    printf("abs time diff : %.0f ns %s\n", timeDiff, rollFlag ? "(rolled)" : "");
     printf("     trigType : 0x%04X\n", trigType);
     printf("        wheel : 0x%04X\n", wheel);
     printf("         User : 0x%04X\n", userRegister);
@@ -105,7 +112,7 @@ public:
 
     //==== check coarseTS 
     timestampTDC = (timestampTrig & 0xFFFFFFFF0000) + coarseTS;
-    if( timestampTDC < timestampTrig ) timestampTDC += 0x10000;
+    // if( timestampTDC < timestampTrig ) timestampTDC += 0x10000;
 
     timestampTrig *= 10; // convert to 10 ns
     timestampTDC *= 10; // convert to 10 ns
@@ -158,7 +165,6 @@ public:
             break;
           }
         }while(abs(diff) > 262144);
-        
         if( debug ) printf("| phase time-%d is NOT valid after roll-over correction.\n", i);
 
       }
@@ -203,7 +209,7 @@ public:
     for( int i = 0; i < 4; i++){
       if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset : 0x%X  * 4 = %d", i, vernier[i], vernier[i], vernier[i] * 0.05, offset[i], offset[i] *4);
       if( (validBit & (1 << i)) && (validMask & (1 << i)) ){
-        phaseTime[i] +=  phaseOffet[i] - 0.05 * vernier[i] ;
+        phaseTime[i] +=  phaseOffet[i] + 0.05 * vernier[i] ;
         validCount ++;
         avgPhaseTimestamp += phaseTime[i];
         if( debug) printf("| OOO\n");

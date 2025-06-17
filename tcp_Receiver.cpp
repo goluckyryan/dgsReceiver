@@ -8,9 +8,9 @@
 #include <time.h>
 #include <sys/stat.h>
 
-int debug = 1;
+int debug = 0;
 
-// int displayCount = 0;
+int displayCount = 0;
 
 #define MAX_FILE_SIZE_BYTE 1024LL*1024*1024*2
 
@@ -224,7 +224,8 @@ int GetData(){ //return bytes_received.
       total_bytes_received += bytes_received;
       if( debug > 0 ) printf("Received %d bytes = %d words | total received %d Bytes, Record size %d bytes\n", bytes_received, word_received, total_bytes_received, recordByte*numRecord);
     }while(total_bytes_received < recordByte * numRecord);
-
+    printf("total received %d Bytes = %d words, Record size %d bytes\n", total_bytes_received, total_bytes_received/4, recordByte*numRecord);
+    
     return total_bytes_received;
 
   } else {
@@ -328,9 +329,9 @@ DataStatus WriteData(int bytes_received){
     }else if(data[index] == 0xAAAA0000){ //==== TRIG data
 
       int header[TRIG_DATA_SIZE];
-      for( int i = 1; i < TRIG_DATA_SIZE; i++) {
+      for( int i = 0; i < TRIG_DATA_SIZE; i++) {
         header[i] = ntohl(data[index+i]);
-        // if( displayCount < 10 ) printf("%d | 0x%08X\n", index+i, header[i]);
+        if( displayCount < 4 ) printf("%2d | 0x%08X\n", index+i, header[i]);
       }
 
       int ch_id					    = 0x0;
@@ -366,7 +367,7 @@ DataStatus WriteData(int bytes_received){
       //   for( int i = 0; i < 10; i++) printf("%d | 0x%08X\n", i, payload[i]);
       // }
 
-      // displayCount ++;
+      displayCount ++;
 
       #ifdef ENABLE_GEB_HEADER
         gebData GEB_data;
@@ -449,7 +450,7 @@ int main(int argc, char **argv) {
       time_t elapsed = now - startTime;
       char* timeStr = ctime(&now);
       if (timeStr) timeStr[strcspn(timeStr, "\n")] = '\0';  // Remove newline
-      printf(" %6.3f Mbytes | %24s | run Time: %ld sec\n", totalFileSize/1e6, timeStr, elapsed);
+      printf("======  %6.3f Mbytes | %24s | run Time: %ld sec\n", totalFileSize/1e6, timeStr, elapsed);
       fflush(stdout);  // Make sure it prints immediately
       lastPrint = now;
     }
