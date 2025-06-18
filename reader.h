@@ -24,7 +24,7 @@ public:
   uint16_t userRegister;
   uint16_t coarseTS;
   uint16_t triggerBitMask;
-  uint16_t offset[4];
+  uint16_t fourNanoSecCounter[4];
   uint16_t vernierAB;
   uint16_t vernierCD;
 
@@ -37,7 +37,19 @@ public:
   bool valid[4];
   double avgPhaseTimestamp;
 
-  uint8_t phaseOffet[4] = {3,0, 1, 2};
+  float phaseOffset[4] = {0, 1, 2, 3};
+  
+  void Clear(){
+     avgPhaseTimestamp = 0;
+     timestampTrig = 0;
+     timestampTDC = 0;
+     isVernierGoodOrder = false;
+     validBit = 0;
+     for( int i = 0 ; i < 4; i++ ){
+     	valid[i] = false;
+     	phaseTime[i] = 0;
+     }
+  }
   
   void PrintAsIfRaw(){
     printf("-------------------- raw data -------------------\n");
@@ -51,10 +63,10 @@ public:
     printf(" 7 | 0x%04X\n", userRegister);
     printf(" 8 | 0x%04X\n", coarseTS);
     printf(" 9 | 0x%04X\n", triggerBitMask);
-    printf("10 | 0x%04X\n", offset[0]);
-    printf("11 | 0x%04X\n", offset[1]);
-    printf("12 | 0x%04X\n", offset[2]);
-    printf("13 | 0x%04X\n", offset[3]);
+    printf("10 | 0x%04X\n", fourNanoSecCounter[0]);
+    printf("11 | 0x%04X\n", fourNanoSecCounter[1]);
+    printf("12 | 0x%04X\n", fourNanoSecCounter[2]);
+    printf("13 | 0x%04X\n", fourNanoSecCounter[3]);
     printf("14 | 0x%04X\n", vernierAB);
     printf("15 | 0x%04X\n", vernierCD);
     printf("-------------------------------------------------\n");
@@ -82,10 +94,10 @@ public:
     printf("        wheel : 0x%04X\n", wheel);
     printf("         User : 0x%04X\n", userRegister);
     printf("      trigger : 0x%04X\n", triggerBitMask);
-    printf(" TDC offset 0 : 0x%04X x 4 ns = %d\n", offset[0], offset[0] * 4);
-    printf(" TDC offset 1 : 0x%04X x 4 ns = %d\n", offset[1], offset[1] * 4);
-    printf(" TDC offset 2 : 0x%04X x 4 ns = %d\n", offset[2], offset[2] * 4);
-    printf(" TDC offset 3 : 0x%04X x 4 ns = %d\n", offset[3], offset[3] * 4);
+    printf("  TDC 4ns (0) : 0x%04X x 4 ns = %d\n", fourNanoSecCounter[0], fourNanoSecCounter[0] * 4);
+    printf("  TDC 4ns (1) : 0x%04X x 4 ns = %d\n", fourNanoSecCounter[1], fourNanoSecCounter[1] * 4);
+    printf("  TDC 4ns (2) : 0x%04X x 4 ns = %d\n", fourNanoSecCounter[2], fourNanoSecCounter[2] * 4);
+    printf("  TDC 4ns (3) : 0x%04X x 4 ns = %d\n", fourNanoSecCounter[3], fourNanoSecCounter[3] * 4);
     printf("   Vernier AB : 0x%04X\n", vernierAB);
     printf("   Vernier CD : 0x%04X\n", vernierCD);
     printf("--------------------\n");
@@ -106,8 +118,8 @@ public:
     trigType     = data[3] >> 16; wheel          = data[3] & 0xFFFF;
     multiplicity = data[4] >> 16; userRegister   = data[4] & 0xFFFF;
     coarseTS     = data[5] >> 16; triggerBitMask = data[5] & 0xFFFF; 
-    offset[0]    = data[6] >> 16; offset[1]      = data[6] & 0xFFFF; 
-    offset[2]    = data[7] >> 16; offset[3]      = data[7] & 0xFFFF; 
+    fourNanoSecCounter[0]    = data[6] >> 16; fourNanoSecCounter[1]      = data[6] & 0xFFFF; 
+    fourNanoSecCounter[2]    = data[7] >> 16; fourNanoSecCounter[3]      = data[7] & 0xFFFF; 
     vernierAB    = data[8] >> 16; vernierCD      = data[8] & 0xFFFF; 
 
     //==== check coarseTS 
@@ -133,15 +145,21 @@ public:
   double CalTAC(bool debug = false){
   
     
+    if( debug) printf("VernierAB : 0x%04X => Valid 0x%X \n", vernierAB, validBit);
     double haha = timestampTDC - timestampTDC % 262144;
     for( int i = 0 ; i < 4; i++){
-      double kaka = offset[i] * 4; // convert to ns
-      phaseTime[i] = haha + kaka; 
-      valid[i] = false; // reset valid
-      if( debug ) printf("phase time-%d | %.0f + %.0f = %.0f ns \n", i, haha, kaka, phaseTime[i]);
+      valid[i] = true; // this is for both prePhase and vernier check
+      if( validBit & (1 << i) ) {
+	double kaka = fourNanoSecCounter[i] * 4; // convert to ns
+	phaseTime[i] = haha + kaka; 
+	if( debug ) printf("pre phase time-%d | %.0f + %.0f = %.0f ns \n", i, haha, kaka, phaseTime[i]);
+      }else{
+      	phaseTime[i] = 0;
+        valid[i] = false;
+      }
     }
 
-    short validMask = 0x0;
+    short validMask = 0x0; // for the perPhaseTime
     for( int i = 0; i < 4; i++){
       if( debug ) printf("----------- %d \n", i);
       short sign = 1;
@@ -150,26 +168,50 @@ public:
       if ( 200 < abs(diff) && abs(diff) < 300  ) {
         validMask |= (1 << i);
         if( debug ) printf("| phase time-%d is valid.\n", i);
-        valid[i] = true;
       }else{
         if( diff < 0 ) sign = -1;
         if( diff > 0 ) sign = 1;
         do{        
           phaseTime[i] += sign * 262144; 
           diff = timestampTDC - phaseTime[i];
-          if( debug) printf("Diff %.0f \n", timestampTDC - phaseTime[i]); 
+          if( debug) printf("Diff %.0f ", timestampTDC - phaseTime[i]); 
           if ( 200 < abs(diff) && abs(diff) < 300  ) {
             validMask |= (1 << i);
             if( debug ) printf("| phase time-%d is valid after roll-over correction.\n", i);
-            valid[i] = true;
             break;
           }
         }while(abs(diff) > 262144);
+        if ( !(200 < abs(diff) && abs(diff) < 300)  )   valid[i] = false;
         if( debug ) printf("| phase time-%d is NOT valid after roll-over correction.\n", i);
-
       }
     }
+    
+    // finding the bigger vernier among the valid
+    int biggestID, biggestVernier = 0;
+    for( int i = 0; i < 4;  i++){
+    	if( valid[i] && vernier[i] > biggestVernier){
+    	   biggestVernier = vernier[i];
+    	   biggestID = i;
+    	}
+    }
+    
+    int diff = 0;
+    for( int i = 4; i > 1 ; i --){
+    	int ID = (i  + biggestID) % 4; 
+    	int previousID = ( i  + biggestID - 1) %4; 
+    	if( valid[previousID] && valid[ID] ) {
+           diff = vernier[ID] - vernier[previousID] ;
+           if( debug ) printf("%d - %d | %d ", previousID, ID, diff); 
+           if( !(15 < diff && diff < 25)) {
+           	if( debug) printf( " | XXX\n");
+           }else{
+           	if( debug) printf( " | OOO\n");
+           }
+    	}
+    }
+        
 
+/*
     isVernierGoodOrder = true;
     std::vector<std::pair<int, int>> vernierPair;
     for( int i = 0; i < 4; i++){
@@ -201,28 +243,30 @@ public:
         }
       }
     }
+*/
 
 
-    if( debug) printf("VernierAB : 0x%04X => Valid 0x%X \n", vernierAB, validBit);
     int validCount = 0;
     avgPhaseTimestamp = 0;
     for( int i = 0; i < 4; i++){
-      if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset : 0x%X  * 4 = %d", i, vernier[i], vernier[i], vernier[i] * 0.05, offset[i], offset[i] *4);
-      if( (validBit & (1 << i)) && (validMask & (1 << i)) ){
-        phaseTime[i] +=  phaseOffet[i] + 0.05 * vernier[i] ;
+      //if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | fourNanoSecCounter : 0x%X  * 4 = %d", i, vernier[i], vernier[i], vernier[i] * 0.05, fourNanoSecCounter[i], fourNanoSecCounter[i] *4);
+      if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset-%d = %.2f", i, vernier[i], vernier[i], vernier[i] * 0.05, i, phaseOffset[i]);
+      if( (validBit & (1 << i)) && (validMask & (1 << i)) && valid[i] ){
+        phaseTime[i] +=   - 0.05 * vernier[i] ;
+        //phaseTime[i] +=  phaseOffset[i] - 0.05 * vernier[i] ;
         validCount ++;
         avgPhaseTimestamp += phaseTime[i];
-        if( debug) printf("| OOO\n");
+        if( debug) printf("| %f OOO\n", phaseTime[i]);
       }else{
         valid[i] = false;
         if( debug) printf("| XXX \n");
       }
     }
 
-    // average of the offset
+    // average of the fourNanoSecCounter
     avgPhaseTimestamp /= validCount;
 
-    if( debug) printf("average offset : %.3f ns | diff to MTRG : %f\n", avgPhaseTimestamp, timestampTrig - avgPhaseTimestamp); 
+    if( debug) printf("average phaseTime  : %.3f ns | diff to MTRG : %f\n", avgPhaseTimestamp, timestampTrig - avgPhaseTimestamp); 
     
     return avgPhaseTimestamp; // ns
 

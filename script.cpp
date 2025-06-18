@@ -4,6 +4,7 @@
 #include "TStyle.h"
 #include "TMath.h"
 #include "TCanvas.h"
+#include "TString.h"
 
 uint32_t * packData(uint32_t * data){
   uint32_t * payload = new uint32_t[10];
@@ -69,27 +70,37 @@ void script(){
 
   
   
-  Reader reader("haha_01ft_100ns_000_0099_0_trig");
+  Reader reader("haha_Ctest_2_1500Trig_000_0099_0_trig");
   
   int totBlock = reader.ScanNumBlock();
   
-  // reader.ReadNextBlock(0, 1);
-  // printf("##################################\n");
-  // reader.ReadNextBlock(0, 1);
-  // printf("##################################\n");
-  // reader.ReadNextBlock(0, 1);
+  reader.ReadNextBlock(0, 1);
+  printf("##################################\n");
+  reader.ReadNextBlock(0, 1);
+  printf("##################################\n");
+  reader.ReadNextBlock(0, 1);
+  
+  //return;
   
   int displayNANCount = 0;
   
-  int plotRange = 100; // ns
-  int plotRangeStart = 200;
+  int plotRange = 50; // ns
+  int plotRangeStart = 250;
+  int plotRangeStart2 = 100;
 
   TH1F * h0 = new TH1F("h0", "timestampTDC - timestampTRIG; [ns]", 1000, 0, 600);
   TH1F * h1 = new TH1F("h1", "timestampTDC - phaseTime; [ns]; count / 10 ps", 100 * plotRange  ,  plotRangeStart, plotRangeStart + plotRange);
+  TH1F * h4 = new TH1F("h4", "timestampTRIG - phaseTime; [ns]; count / 10 ps", 100 * plotRange  , plotRangeStart2, plotRangeStart2 + plotRange);
   TH1F * h2 = new TH1F("h2", "valid ID", 4, 0, 4);
   TH1F * h3 = new TH1F("h3", "valid count", 5, 0, 5);
 
+  TH1F * hp[4];
+  for( int i = 0 ; i < 4; i++){
+//    hp[i] = new TH1F(Form("hp%d",i), Form("timestampTRIG - phaseTime[%d]; [ns]; count/ 10 ps", i), 100 * plotRange,plotRangeStart2, plotRangeStart2 + plotRange);
+    hp[i] = new TH1F(Form("hp%d",i), Form("vernier[%d] ; [ns]; count/ 10 ps", i), 66 , -1, 65 );
+  }
   for( int i = 0; i < totBlock; i++){
+    reader.hit->Clear();
     int haha = reader.ReadNextBlock();
     if( haha < 0 ) {
       printf("Error reading block %d, code: %d\n", i, haha);
@@ -99,10 +110,13 @@ void script(){
     // printf("Block %d, TDC timestamp: %ld, avg phase timestamp: %f, diff: %f\n", i, reader.hit->timestampTrig, reader.hit->avgPhaseTimestamp, diff);
     h0->Fill(reader.hit->timestampTDC - reader.hit->timestampTrig);
     h1->Fill(diff); 
+    h4->Fill(reader.hit->timestampTrig - reader.hit->avgPhaseTimestamp); 
     int totalValidCount = 0;
     for ( int j = 0; j < 4; j++){
       if( reader.hit->valid[j] ) {
         h2->Fill(j);
+//        hp[j]->Fill(reader.hit->timestampTrig - reader.hit->phaseTime[j]);
+        hp[j]->Fill(reader.hit->vernier[j] );
         totalValidCount++;
       }
       if( totalValidCount == 0 ) {
@@ -117,13 +131,20 @@ void script(){
     h3->Fill(totalValidCount);
   }
 
-  TCanvas * c1 = new TCanvas("c1", "c1", 1200, 600);
-  c1->Divide(2, 2);
+  TCanvas * c1 = new TCanvas("c1", "c1", 1600, 600);
+  c1->Divide(3, 3);
 
-  gStyle->SetOptStat("neiou");
+  gStyle->SetOptStat(0xFFFF);
   c1->cd(1); c1->cd(1)->SetLogy(1); h0->Draw();
   c1->cd(2); c1->cd(2)->SetLogy(0); h1->Draw();
-  c1->cd(3); h2->Draw();
-  c1->cd(4); h3->Draw();
+  c1->cd(3); c1->cd(3)->SetLogy(0); h4->Draw();
+  
+  c1->cd(4); hp[0]->Draw();
+  c1->cd(5); hp[1]->Draw();
+  c1->cd(6); h2->Draw();
+  
+  c1->cd(7); hp[2]->Draw();
+  c1->cd(8); hp[3]->Draw();
+  c1->cd(9); h3->Draw();
 
 }
