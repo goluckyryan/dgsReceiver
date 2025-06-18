@@ -30,8 +30,6 @@ public:
 
   uint8_t validBit;
   int vernier[4];
-  int vernierOrder;
-  bool isVernierGoodOrder;
   double phaseTime[4]; // in ns
   
   bool valid[4];
@@ -43,10 +41,9 @@ public:
      avgPhaseTimestamp = 0;
      timestampTrig = 0;
      timestampTDC = 0;
-     isVernierGoodOrder = false;
      validBit = 0;
      for( int i = 0 ; i < 4; i++ ){
-     	valid[i] = false;
+     	valid[i] = true;
      	phaseTime[i] = 0;
      }
   }
@@ -150,39 +147,36 @@ public:
     for( int i = 0 ; i < 4; i++){
       valid[i] = true; // this is for both prePhase and vernier check
       if( validBit & (1 << i) ) {
-	double kaka = fourNanoSecCounter[i] * 4; // convert to ns
-	phaseTime[i] = haha + kaka; 
-	if( debug ) printf("pre phase time-%d | %.0f + %.0f = %.0f ns \n", i, haha, kaka, phaseTime[i]);
+      	double kaka = fourNanoSecCounter[i] * 4; // convert to ns
+	      phaseTime[i] = haha + kaka; 
+	      if( debug ) printf("pre phase time-%d | %.0f + %.0f = %.0f ns | ", i, haha, kaka, phaseTime[i]);
+
+        short sign = 1;
+        double diff = timestampTDC - phaseTime[i];  
+
+        if( debug) printf("Diff %.0f ", timestampTDC - phaseTime[i]); 
+        if ( 200 < abs(diff) && abs(diff) < 300  ) {
+          if( debug ) printf("| O\n");
+        }else{
+          if( diff < 0 ) sign = -1;
+          if( diff > 0 ) sign = 1;
+          do{        
+            phaseTime[i] += sign * 262144; 
+            diff = timestampTDC - phaseTime[i];
+            if( debug) printf("Diff %.0f ", timestampTDC - phaseTime[i]); 
+            if ( 200 < abs(diff) && abs(diff) < 300  ) {
+              if( debug ) printf("| O after roll-over correction.\n");
+              break;
+            }
+            if ( debug ) printf("\n");
+          }while(abs(diff) > 262144);
+          if ( !(200 < abs(diff) && abs(diff) < 300)  )   valid[i] = false;
+          if( debug ) printf("| X after roll-over correction.\n");
+        }
+
       }else{
       	phaseTime[i] = 0;
         valid[i] = false;
-      }
-    }
-
-    short validMask = 0x0; // for the perPhaseTime
-    for( int i = 0; i < 4; i++){
-      if( debug ) printf("----------- %d \n", i);
-      short sign = 1;
-      double diff = timestampTDC - phaseTime[i];
-      if( debug) printf("Diff %.0f \n", timestampTDC - phaseTime[i]); 
-      if ( 200 < abs(diff) && abs(diff) < 300  ) {
-        validMask |= (1 << i);
-        if( debug ) printf("| phase time-%d is valid.\n", i);
-      }else{
-        if( diff < 0 ) sign = -1;
-        if( diff > 0 ) sign = 1;
-        do{        
-          phaseTime[i] += sign * 262144; 
-          diff = timestampTDC - phaseTime[i];
-          if( debug) printf("Diff %.0f ", timestampTDC - phaseTime[i]); 
-          if ( 200 < abs(diff) && abs(diff) < 300  ) {
-            validMask |= (1 << i);
-            if( debug ) printf("| phase time-%d is valid after roll-over correction.\n", i);
-            break;
-          }
-        }while(abs(diff) > 262144);
-        if ( !(200 < abs(diff) && abs(diff) < 300)  )   valid[i] = false;
-        if( debug ) printf("| phase time-%d is NOT valid after roll-over correction.\n", i);
       }
     }
     
@@ -190,77 +184,37 @@ public:
     int biggestID, biggestVernier = 0;
     for( int i = 0; i < 4;  i++){
     	if( valid[i] && vernier[i] > biggestVernier){
-    	   biggestVernier = vernier[i];
-    	   biggestID = i;
+        biggestVernier = vernier[i];
+        biggestID = i;
     	}
     }
+    if( debug ) printf("Biggest vernier : %d, ID : %d\n", biggestVernier, biggestID);
     
     int diff = 0;
     for( int i = 4; i > 1 ; i --){
     	int ID = (i  + biggestID) % 4; 
     	int previousID = ( i  + biggestID - 1) %4; 
     	if( valid[previousID] && valid[ID] ) {
-           diff = vernier[ID] - vernier[previousID] ;
-           if( debug ) printf("%d - %d | %d ", previousID, ID, diff); 
-           if( !(15 < diff && diff < 25)) {
-           	if( debug) printf( " | XXX\n");
-           }else{
-           	if( debug) printf( " | OOO\n");
-           }
+        diff = vernier[ID] - vernier[previousID] ;
+        if( debug ) printf("%d(%d) - %d(%d) = %d ", ID, vernier[ID], previousID, vernier[previousID] , diff); 
+        if( !(15 < diff && diff < 25)) {
+          if( debug) printf( " | XXX\n");
+        }else{
+          if( debug) printf( " | OOO\n");
+        }
     	}
     }
-        
-
-/*
-    isVernierGoodOrder = true;
-    std::vector<std::pair<int, int>> vernierPair;
-    for( int i = 0; i < 4; i++){
-      vernierPair.push_back(std::make_pair(i, vernier[i]));
-    }
-    std::sort(vernierPair.begin(), vernierPair.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
-      return a.second < b.second;
-    });
-    vernierOrder = 0;
-    for( int i = 0; i < 4; i++) vernierOrder += vernierPair[i].first * pow(10, 3-i);
-
-    if( !(vernierOrder == 123 || vernierOrder == 1230 || vernierOrder ==2301 || vernierOrder == 3012) ) isVernierGoodOrder = false;
-    if( isVernierGoodOrder  && debug ) printf(" the Vernier is in good order : %d\n", vernierOrder);
-
-    int tolerance = 4; // step
-    std::vector<std::pair<int, int>> outlinerPair;
-    for( int i = 0; i < 4; i ++){
-      for( int j = i+1; j < 4; j++){
-        int diff = vernierPair[j].second - vernierPair[i].second;
-        int dist = 20 * (j-i);
-        int tor = tolerance * (j-i);
-        if( debug) printf("%d - %d | diff : %d | %d - %d ", j,  i, diff, dist - tor , dist + tor);
-
-        if( abs(dist - diff) > tor) {
-          outlinerPair.push_back(std::make_pair(vernierPair[i].first, vernierPair[j].first));
-          if( debug) printf(" | X \n");
-        }else{
-          if( debug) printf(" | O \n");
-        }
-      }
-    }
-*/
-
 
     int validCount = 0;
     avgPhaseTimestamp = 0;
     for( int i = 0; i < 4; i++){
-      //if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | fourNanoSecCounter : 0x%X  * 4 = %d", i, vernier[i], vernier[i], vernier[i] * 0.05, fourNanoSecCounter[i], fourNanoSecCounter[i] *4);
+      if( !valid[i] ) continue;
       if( debug) printf("Vernier-%d : 0x%02X = %02d * 50 ps = %.3f ns | offset-%d = %.2f", i, vernier[i], vernier[i], vernier[i] * 0.05, i, phaseOffset[i]);
-      if( (validBit & (1 << i)) && (validMask & (1 << i)) && valid[i] ){
         phaseTime[i] +=   - 0.05 * vernier[i] ;
         //phaseTime[i] +=  phaseOffset[i] - 0.05 * vernier[i] ;
         validCount ++;
         avgPhaseTimestamp += phaseTime[i];
-        if( debug) printf("| %f OOO\n", phaseTime[i]);
-      }else{
-        valid[i] = false;
-        if( debug) printf("| XXX \n");
-      }
+        if( debug) printf("| %f \n", phaseTime[i]);
     }
 
     // average of the fourNanoSecCounter

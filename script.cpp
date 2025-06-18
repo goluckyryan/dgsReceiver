@@ -74,15 +74,16 @@ void script(){
   
   int totBlock = reader.ScanNumBlock();
   
-  reader.ReadNextBlock(0, 1);
-  printf("##################################\n");
-  reader.ReadNextBlock(0, 1);
-  printf("##################################\n");
-  reader.ReadNextBlock(0, 1);
-  
-  //return;
+  // reader.ReadNextBlock(0, 1);
+  // printf("##################################\n");
+  // reader.ReadNextBlock(0, 1);
+  // printf("##################################\n");
+  // reader.ReadNextBlock(0, 1);
+
+  // return;
   
   int displayNANCount = 0;
+  int maxDisplayNANCount = 0;
   
   int plotRange = 50; // ns
   int plotRangeStart = 250;
@@ -99,6 +100,7 @@ void script(){
 //    hp[i] = new TH1F(Form("hp%d",i), Form("timestampTRIG - phaseTime[%d]; [ns]; count/ 10 ps", i), 100 * plotRange,plotRangeStart2, plotRangeStart2 + plotRange);
     hp[i] = new TH1F(Form("hp%d",i), Form("vernier[%d] ; [ns]; count/ 10 ps", i), 66 , -1, 65 );
   }
+
   for( int i = 0; i < totBlock; i++){
     reader.hit->Clear();
     int haha = reader.ReadNextBlock();
@@ -120,7 +122,7 @@ void script(){
         totalValidCount++;
       }
       if( totalValidCount == 0 ) {
-        if( (TMath::IsNaN(diff) || !reader.hit->isVernierGoodOrder) &&  displayNANCount < 10 ) {
+        if( TMath::IsNaN(diff)  &&  displayNANCount < maxDisplayNANCount ) {
           reader.hit->PrintAsIfRaw();
           reader.hit->Print();
           reader.hit->CalTAC(true);
@@ -134,7 +136,7 @@ void script(){
   TCanvas * c1 = new TCanvas("c1", "c1", 1600, 600);
   c1->Divide(3, 3);
 
-  gStyle->SetOptStat(0xFFFF);
+  gStyle->SetOptStat("neiou");
   c1->cd(1); c1->cd(1)->SetLogy(1); h0->Draw();
   c1->cd(2); c1->cd(2)->SetLogy(0); h1->Draw();
   c1->cd(3); c1->cd(3)->SetLogy(0); h4->Draw();
